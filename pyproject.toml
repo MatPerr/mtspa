@@ -1,12 +1,15 @@
 [project]
 name = "mtspa-26"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multiple-agent appointment routing with exact and heuristic solvers"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
     "pre-commit>=4.6.2",
     "tqdm>=4.70.1",
+    "uvicorn[standard]>=0.53.0",
 ]
 
 [dependency-groups]
