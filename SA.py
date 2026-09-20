@@ -10,6 +10,8 @@ from datamodel import ProblemData, Solution, Tours, Tour
 from metrics import tour_metrics
 from tqdm import tqdm
 from utils import fair_loss, load_data
+from bisect import insort_right
+
 
 
 class SimulatedAnnealingSolver:
@@ -58,41 +60,38 @@ class SimulatedAnnealingSolver:
     def give_appointment(self, donor_tour: Tour, receiver_tour: Tour) -> None:
         appointment_index = self.rng.randrange(1, len(donor_tour) - 1)
         appointment = donor_tour.pop(appointment_index)
-        insertion_index = self.rng.randrange(1, len(receiver_tour))
-        receiver_tour.insert(insertion_index, appointment)
+        node_times = self.problem.node_times
+        insort_right(
+            receiver_tour,
+            appointment,
+            lo=1,
+            hi=len(receiver_tour) - 1,
+            key=lambda node_id: (
+                node_times[node_id],
+                node_id,
+            ),
+        )
 
-    def sample_neighbor(self, tours: Tours, p: float) -> Tours:
-        choose_swap = self.rng.random() < p
+    def sample_neighbor(self, tours: Tours) -> Tours:
+            donor_id, receiver_id = self.rng.sample(
+                range(len(tours)),
+                k=2,
+            )
 
-        if choose_swap:
-            agent_id = self.rng.randrange(len(tours))
-            tour = tours[agent_id]
-            if len(tour) < 4:
+            if len(tours[donor_id]) <= 2:
+                donor_id, receiver_id = receiver_id, donor_id
+
+            if len(tours[donor_id]) <= 2:
                 return tours
+
             neighbor = tours.copy()
-            neighbor[agent_id] = tour.copy()
-            self.swap_appointments(neighbor[agent_id])
+            neighbor[donor_id] = tours[donor_id].copy()
+            neighbor[receiver_id] = tours[receiver_id].copy()
+            self.give_appointment(
+                neighbor[donor_id],
+                neighbor[receiver_id],
+            )
             return neighbor
-
-        donor_id, receiver_id = self.rng.sample(
-            range(len(tours)),
-            k=2,
-        )
-
-        if len(tours[donor_id]) <= 2:
-            donor_id, receiver_id = receiver_id, donor_id
-
-        if len(tours[donor_id]) <= 2:
-            return tours
-
-        neighbor = tours.copy()
-        neighbor[donor_id] = tours[donor_id].copy()
-        neighbor[receiver_id] = tours[receiver_id].copy()
-        self.give_appointment(
-            neighbor[donor_id],
-            neighbor[receiver_id],
-        )
-        return neighbor
 
     def estimate_typical_delta(
         self,
@@ -103,7 +102,7 @@ class SimulatedAnnealingSolver:
         delta_magnitudes = []
 
         for _ in range(samples):
-            neighbor_tours = self.sample_neighbor(solution.tours, p)
+            neighbor_tours = self.sample_neighbor(solution.tours)
             if neighbor_tours is solution.tours:
                 continue
 
@@ -149,7 +148,7 @@ class SimulatedAnnealingSolver:
                 final_temperature / initial_temperature
             ) ** (step / max(steps - 1, 1))
 
-            neighbor_tours = self.sample_neighbor(current.tours, p)
+            neighbor_tours = self.sample_neighbor(current.tours)
             if neighbor_tours is current.tours:
                 continue
 

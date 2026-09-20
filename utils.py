@@ -3,7 +3,7 @@ from pathlib import Path
 
 from datamodel import Agent, Matrix, Node, TourMetrics
 
-LATENESS_PENALTY_PER_SECOND = 1000
+LATENESS_PENALTY_PER_SECOND = 100
 
 
 def fair_loss(metrics: TourMetrics) -> float:
