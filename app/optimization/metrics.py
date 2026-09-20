@@ -1,7 +1,7 @@
 from math import sqrt
 from typing import Sequence
 
-from datamodel import (
+from app.optimization.datamodel import (
     AgentId,
     ProblemData,
     SolutionMetrics,

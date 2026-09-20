@@ -1,16 +1,7 @@
 import json
 from pathlib import Path
 
-from datamodel import Agent, Matrix, Node, SolutionMetrics
-
-LATENESS_PENALTY_PER_SECOND = 100
-
-
-def fair_loss(metrics: SolutionMetrics) -> float:
-    return (
-        metrics.total_distance
-        + LATENESS_PENALTY_PER_SECOND * metrics.total_lateness
-    )
+from app.optimization.datamodel import Agent, Matrix, Node
 
 
 def load_data(

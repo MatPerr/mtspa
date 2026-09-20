@@ -3,7 +3,7 @@ import json
 import math
 from pathlib import Path
 
-from datamodel import ProblemData, Solution, Tour, TourMetrics
+from app.optimization.datamodel import ProblemData, Solution, Tour, TourMetrics
 
 
 def save_solution_report(

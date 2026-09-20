@@ -2,10 +2,11 @@ import argparse
 import time
 from pathlib import Path
 
-from DP import DynamicProgrammingSolver
-from SA import SimulatedAnnealingSolver
-from datamodel import ProblemData, Solution
-from utils import LATENESS_PENALTY_PER_SECOND, load_data
+from app.optimization.datamodel import ProblemData, Solution
+from app.optimization.objectives import LATENESS_PENALTY_PER_SECOND
+from app.optimization.problem_io import load_data
+from app.optimization.solvers.dp import DynamicProgrammingSolver
+from app.optimization.solvers.sa import SimulatedAnnealingSolver
 
 
 def format_table(rows: list[tuple[str, str, str, str]]) -> str:
