@@ -122,12 +122,26 @@ class ProblemData:
             )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class TourMetrics:
-    total_distance: float
+    distance: int
+    travel_time: int
+    gain: int
+    elapsed_time: int
+    gain_per_km: float
+    gain_per_hour: float
+    lateness: int
+    waiting_time: int
+    overtime: int
+
+
+@dataclass(frozen=True, slots=True)
+class SolutionMetrics:
+    total_distance: int
     distance_std: float
-    total_time: float
-    time_std: float
+    total_travel_time: int
+    travel_time_std: float
+    total_gain: int
     gain_std: float
     total_gain_per_km: float
     gain_per_km_std: float
@@ -143,5 +157,6 @@ class TourMetrics:
 @dataclass(slots=True)
 class Solution:
     tours: Tours
-    metrics: TourMetrics
+    tour_metrics: list[TourMetrics]
+    metrics: SolutionMetrics
     loss: float

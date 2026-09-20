@@ -3,15 +3,17 @@ import math
 import random
 import statistics
 import time
+from bisect import insort_right
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-from datamodel import ProblemData, Solution, Tours, Tour
-from metrics import tour_metrics
+from datamodel import AgentId, ProblemData, Solution, Tour, Tours
+from metrics import (
+    calculate_solution_metrics,
+    calculate_tour_metrics,
+)
 from tqdm import tqdm
 from utils import fair_loss, load_data
-from bisect import insort_right
-
 
 
 class SimulatedAnnealingSolver:
@@ -41,21 +43,44 @@ class SimulatedAnnealingSolver:
 
         return self.evaluate_tours(tours)
 
-    def evaluate_tours(self, tours: Tours) -> Solution:
-        metrics = tour_metrics(self.problem, tours)
+    def evaluate_tours(
+        self,
+        tours: Tours,
+        *,
+        previous: Solution | None = None,
+        changed_agent_ids: tuple[AgentId, ...] | None = None,
+    ) -> Solution:
+        if previous is None:
+            if changed_agent_ids is not None:
+                raise ValueError(
+                    "changed_agent_ids requires a previous solution"
+                )
+            metrics_by_tour = [
+                calculate_tour_metrics(self.problem, agent_id, tour)
+                for agent_id, tour in enumerate(tours)
+            ]
+        else:
+            if changed_agent_ids is None:
+                raise ValueError(
+                    "changed_agent_ids is required with a previous solution"
+                )
+            metrics_by_tour = previous.tour_metrics.copy()
+
+            for agent_id in changed_agent_ids:
+                metrics_by_tour[agent_id] = calculate_tour_metrics(
+                    self.problem,
+                    agent_id,
+                    tours[agent_id],
+                )
+
+        metrics = calculate_solution_metrics(metrics_by_tour)
 
         return Solution(
             tours=tours,
+            tour_metrics=metrics_by_tour,
             metrics=metrics,
             loss=fair_loss(metrics),
         )
-
-    def swap_appointments(self, tour: Tour) -> None:
-        first, second = self.rng.sample(
-                            range(1, len(tour) - 1),
-                            k=2,
-                        )
-        tour[first], tour[second] = tour[second], tour[first]
 
     def give_appointment(self, donor_tour: Tour, receiver_tour: Tour) -> None:
         appointment_index = self.rng.randrange(1, len(donor_tour) - 1)
@@ -72,41 +97,48 @@ class SimulatedAnnealingSolver:
             ),
         )
 
-    def sample_neighbor(self, tours: Tours) -> Tours:
-            donor_id, receiver_id = self.rng.sample(
-                range(len(tours)),
-                k=2,
-            )
+    def sample_neighbor(
+        self,
+        tours: Tours,
+    ) -> tuple[Tours, tuple[AgentId, AgentId]] | None:
+        donor_id, receiver_id = self.rng.sample(
+            range(len(tours)),
+            k=2,
+        )
 
-            if len(tours[donor_id]) <= 2:
-                donor_id, receiver_id = receiver_id, donor_id
+        if len(tours[donor_id]) <= 2:
+            donor_id, receiver_id = receiver_id, donor_id
 
-            if len(tours[donor_id]) <= 2:
-                return tours
+        if len(tours[donor_id]) <= 2:
+            return None
 
-            neighbor = tours.copy()
-            neighbor[donor_id] = tours[donor_id].copy()
-            neighbor[receiver_id] = tours[receiver_id].copy()
-            self.give_appointment(
-                neighbor[donor_id],
-                neighbor[receiver_id],
-            )
-            return neighbor
+        neighbor = tours.copy()
+        neighbor[donor_id] = tours[donor_id].copy()
+        neighbor[receiver_id] = tours[receiver_id].copy()
+        self.give_appointment(
+            neighbor[donor_id],
+            neighbor[receiver_id],
+        )
+        return neighbor, (donor_id, receiver_id)
 
     def estimate_typical_delta(
         self,
         solution: Solution,
         samples: int,
-        p: float,
     ) -> float:
         delta_magnitudes = []
 
         for _ in range(samples):
-            neighbor_tours = self.sample_neighbor(solution.tours)
-            if neighbor_tours is solution.tours:
+            neighbor = self.sample_neighbor(solution.tours)
+            if neighbor is None:
                 continue
 
-            candidate = self.evaluate_tours(neighbor_tours)
+            neighbor_tours, changed_agent_ids = neighbor
+            candidate = self.evaluate_tours(
+                neighbor_tours,
+                previous=solution,
+                changed_agent_ids=changed_agent_ids,
+            )
             delta = candidate.loss - solution.loss
             if delta != 0:
                 delta_magnitudes.append(abs(delta))
@@ -116,14 +148,11 @@ class SimulatedAnnealingSolver:
     def optimize(
         self,
         steps: int,
-        p: float = 0.5,
         *,
         show_progress: bool = True,
     ) -> Solution:
         if steps <= 0:
             raise ValueError("steps must be positive")
-        if not 0 <= p <= 1:
-            raise ValueError("p must be between 0 and 1")
 
         current = self.initialize_solution()
         best = current
@@ -132,7 +161,6 @@ class SimulatedAnnealingSolver:
         typical_delta = self.estimate_typical_delta(
             current,
             samples=calibration_samples,
-            p=p,
         )
         initial_temperature = -typical_delta / math.log(0.8)
         final_temperature = -typical_delta / math.log(0.001)
@@ -148,11 +176,16 @@ class SimulatedAnnealingSolver:
                 final_temperature / initial_temperature
             ) ** (step / max(steps - 1, 1))
 
-            neighbor_tours = self.sample_neighbor(current.tours)
-            if neighbor_tours is current.tours:
+            neighbor = self.sample_neighbor(current.tours)
+            if neighbor is None:
                 continue
 
-            candidate = self.evaluate_tours(neighbor_tours)
+            neighbor_tours, changed_agent_ids = neighbor
+            candidate = self.evaluate_tours(
+                neighbor_tours,
+                previous=current,
+                changed_agent_ids=changed_agent_ids,
+            )
             delta = candidate.loss - current.loss
 
             if delta <= 0 or self.rng.random() < math.exp(-delta / temperature):
@@ -174,7 +207,6 @@ class SimulatedAnnealingSolver:
         self,
         steps: int,
         n_runs: int,
-        p: float = 0.5,
         *,
         show_progress: bool = True,
     ) -> Solution:
@@ -182,8 +214,6 @@ class SimulatedAnnealingSolver:
             raise ValueError("steps must be positive")
         if n_runs <= 0:
             raise ValueError("n_runs must be positive")
-        if not 0 <= p <= 1:
-            raise ValueError("p must be between 0 and 1")
 
         solvers = [
             SimulatedAnnealingSolver(
@@ -198,7 +228,6 @@ class SimulatedAnnealingSolver:
                 executor.submit(
                     solver.optimize,
                     steps,
-                    p,
                     show_progress=False,
                 )
                 for solver in solvers
@@ -229,7 +258,6 @@ def main() -> None:
     )
     parser.add_argument("--steps", type=int, default=50_000)
     parser.add_argument("--runs", type=int, default=1)
-    parser.add_argument("--p", type=float, default=0.5)
     parser.add_argument("--seed", type=int)
     arguments = parser.parse_args()
 
@@ -240,20 +268,21 @@ def main() -> None:
     if arguments.runs == 1:
         solution = solver.optimize(
             steps=arguments.steps,
-            p=arguments.p,
         )
     else:
         solution = solver.optimize_parallel(
             steps=arguments.steps,
             n_runs=arguments.runs,
-            p=arguments.p,
         )
     elapsed_seconds = time.perf_counter() - started
 
     print(f"Total distance: {solution.metrics.total_distance / 1000:.3f} km")
     print(f"Distance standard deviation: {solution.metrics.distance_std / 1000:.3f} km")
-    print(f"Total travel time: {solution.metrics.total_time / 60:.1f} min")
-    print(f"Travel-time standard deviation: {solution.metrics.time_std / 60:.1f} min")
+    print(f"Total travel time: {solution.metrics.total_travel_time / 60:.1f} min")
+    print(
+        "Travel-time standard deviation: "
+        f"{solution.metrics.travel_time_std / 60:.1f} min"
+    )
     print(f"Gain standard deviation: {solution.metrics.gain_std:.3f}")
     print(f"Total gain per km: {solution.metrics.total_gain_per_km:.3f}")
     print(f"Gain-per-km standard deviation: {solution.metrics.gain_per_km_std:.3f}")

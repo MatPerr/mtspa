@@ -3,7 +3,7 @@ import json
 import math
 from pathlib import Path
 
-from datamodel import ProblemData, Solution, Tour
+from datamodel import ProblemData, Solution, Tour, TourMetrics
 
 
 def save_solution_report(
@@ -55,38 +55,32 @@ def _summary_data(
         "final_dp_states": final_state_count,
         "elapsed_seconds": elapsed_seconds,
         "agents": {
-            str(agent_id): {
-                "name": problem.agents[agent_id].name,
-                "tour": tour,
-                **_tour_metrics(problem, tour),
-            }
+            str(agent_id): _tour_data(
+                problem,
+                agent_id,
+                tour,
+                solution.tour_metrics[agent_id],
+            )
             for agent_id, tour in enumerate(solution.tours)
         },
     }
 
 
-def _tour_metrics(
+def _tour_data(
     problem: ProblemData,
+    agent_id: int,
     tour: Tour,
+    metrics: TourMetrics,
 ) -> dict[str, object]:
     appointments = tour[1:-1]
-    legs = list(zip(tour, tour[1:]))
     return {
+        "name": problem.agents[agent_id].name,
+        "tour": tour,
         "appointments": appointments,
         "appointment_count": len(appointments),
-        "distance_m": int(
-            sum(
-                problem.distances[origin][destination]
-                for origin, destination in legs
-            )
-        ),
-        "travel_time_s": int(
-            sum(
-                problem.travel_times[origin][destination]
-                for origin, destination in legs
-            )
-        ),
-        "gain": sum(problem.node_gains[node_id] for node_id in appointments),
+        "distance_m": metrics.distance,
+        "travel_time_s": metrics.travel_time,
+        "gain": metrics.gain,
     }
 
 
@@ -240,7 +234,12 @@ def _render_svg(
     )
 
     for agent_id, tour in enumerate(solution.tours):
-        metrics = _tour_metrics(problem, tour)
+        metrics = _tour_data(
+            problem,
+            agent_id,
+            tour,
+            solution.tour_metrics[agent_id],
+        )
         color = colors[agent_id % len(colors)]
         y = map_top + 78 + agent_id * 100
         route_text = " → ".join(map(str, tour))

@@ -61,9 +61,9 @@ def comparison_rows(
         ),
         (
             "Travel time (min)",
-            dp.total_time / 60,
-            sa.total_time / 60,
-            f"{(sa.total_time - dp.total_time) / 60:+,.1f}",
+            dp.total_travel_time / 60,
+            sa.total_travel_time / 60,
+            f"{(sa.total_travel_time - dp.total_travel_time) / 60:+,.1f}",
             1,
         ),
         (
@@ -195,7 +195,6 @@ def main() -> None:
     )
     parser.add_argument("--steps", type=int, default=50_000)
     parser.add_argument("--runs", type=int, default=1)
-    parser.add_argument("--p", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--no-progress", action="store_true")
     parser.add_argument("--no-tours", action="store_true")
@@ -205,8 +204,6 @@ def main() -> None:
         parser.error("--steps must be positive")
     if arguments.runs <= 0:
         parser.error("--runs must be positive")
-    if not 0 <= arguments.p <= 1:
-        parser.error("--p must be between 0 and 1")
 
     problem = ProblemData(*load_data(arguments.filepath))
 
@@ -226,14 +223,12 @@ def main() -> None:
     if arguments.runs == 1:
         sa_solution = sa_solver.optimize(
             steps=arguments.steps,
-            p=arguments.p,
             show_progress=not arguments.no_progress,
         )
     else:
         sa_solution = sa_solver.optimize_parallel(
             steps=arguments.steps,
             n_runs=arguments.runs,
-            p=arguments.p,
             show_progress=not arguments.no_progress,
         )
     sa_elapsed = time.perf_counter() - started

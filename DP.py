@@ -3,22 +3,37 @@ import time
 from pathlib import Path
 
 from datamodel import NodeId, ProblemData, Solution, Tours
-from metrics import tour_metrics
+from metrics import calculate_solution_metrics, calculate_tour_metrics
 from reporting import save_solution_report
 from utils import load_data
 
+DEFAULT_MAX_STATES = 8_000_000
+
 
 class DynamicProgrammingSolver:
-    def __init__(self, problem: ProblemData) -> None:
+    def __init__(
+        self,
+        problem: ProblemData,
+        max_states: int = DEFAULT_MAX_STATES,
+    ) -> None:
+        if max_states <= 0:
+            raise ValueError("max_states must be positive")
+
         self.problem = problem
+        self.max_states = max_states
         self.final_state_count = 0
         self.elapsed_seconds = 0.0
 
     def evaluate_tours(self, tours: Tours) -> Solution:
-        metrics = tour_metrics(self.problem, tours)
+        metrics_by_tour = [
+            calculate_tour_metrics(self.problem, agent_id, tour)
+            for agent_id, tour in enumerate(tours)
+        ]
+        metrics = calculate_solution_metrics(metrics_by_tour)
 
         return Solution(
             tours=tours,
+            tour_metrics=metrics_by_tour,
             metrics=metrics,
             loss=metrics.total_distance,
         )
@@ -62,7 +77,15 @@ class DynamicProgrammingSolver:
                     next_code = assignment_code * agent_count + slot
                     incumbent = next_states.get(next_state)
 
-                    if incumbent is None or next_distance < incumbent[0]:
+                    if incumbent is None:
+                        if len(next_states) >= self.max_states:
+                            raise RuntimeError(
+                                "DP state limit would be exceeded while "
+                                f"assigning appointment {appointment_id}: "
+                                f"maximum {self.max_states:,} states"
+                            )
+                        next_states[next_state] = (next_distance, next_code)
+                    elif next_distance < incumbent[0]:
                         next_states[next_state] = (next_distance, next_code)
 
             if not next_states:
@@ -150,10 +173,18 @@ def main() -> None:
         type=Path,
         default=Path("artifacts"),
     )
+    parser.add_argument(
+        "--max-states",
+        type=int,
+        default=DEFAULT_MAX_STATES,
+    )
     arguments = parser.parse_args()
 
     problem = ProblemData(*load_data(arguments.filepath))
-    optimizer = DynamicProgrammingSolver(problem)
+    optimizer = DynamicProgrammingSolver(
+        problem,
+        max_states=arguments.max_states,
+    )
     solution = optimizer.optimize()
     summary_path, svg_path = save_solution_report(
         problem,
