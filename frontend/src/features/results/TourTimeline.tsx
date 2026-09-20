@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Box, Stack, Tooltip, Typography } from '@mui/material'
 import type { TimelineKind, TimelineSegment, TourTimeline as TourTimelineData } from '../../types'
 
@@ -30,6 +31,7 @@ function segmentLabel(segment: TimelineSegment): string {
 }
 
 export function TourTimeline({ timeline }: { timeline: TourTimelineData }) {
+  const [highlightedSegment, setHighlightedSegment] = useState<string | null>(null)
   const startTime = timeline.workday_start
   const endTime = timeline.end_time
   const span = endTime - startTime
@@ -130,13 +132,18 @@ export function TourTimeline({ timeline }: { timeline: TourTimelineData }) {
               const durationLabel = duration < 60 ? `${duration} s` : `${(duration / 60).toFixed(1)} min`
               const description = `${label}: ${formatClock(segment.start_time)}–${formatClock(segment.end_time)}`
                 + ` · ${durationLabel}`
+              const segmentKey = `${lane.label}-${columnIndex}-${index}`
               return (
-                <Tooltip key={`${columnIndex}-${index}`} title={description} arrow enterTouchDelay={0}>
+                <Tooltip key={segmentKey} title={description} arrow enterTouchDelay={0}>
                   <Box
                     component="span"
                     tabIndex={0}
                     role="img"
                     aria-label={description}
+                    onMouseEnter={() => setHighlightedSegment(segmentKey)}
+                    onMouseLeave={() => setHighlightedSegment(null)}
+                    onFocus={() => setHighlightedSegment(segmentKey)}
+                    onBlur={() => setHighlightedSegment(null)}
                     sx={{
                       position: 'absolute',
                       top: thinDelay
@@ -149,6 +156,8 @@ export function TourTimeline({ timeline }: { timeline: TourTimelineData }) {
                       zIndex: thinDelay ? 4 : duration === 0 ? 2 : 1,
                       bgcolor: style.color,
                       color: style.text,
+                      opacity: highlightedSegment === null || highlightedSegment === segmentKey ? 1 : 0.35,
+                      transition: 'opacity 120ms ease',
                       border: thinDelay ? 'none' : '1px solid #ffffff',
                       borderRadius: thinDelay ? 0 : '3px',
                       display: 'flex',
