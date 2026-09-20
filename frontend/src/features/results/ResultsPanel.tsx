@@ -1,10 +1,15 @@
+import { useState } from 'react'
 import {
   Alert,
   Box,
+  Button,
   ButtonBase,
   Chip,
   Collapse,
   Divider,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   Paper,
   Stack,
   Tab,
@@ -15,7 +20,9 @@ import type {
   LossConfigId,
   SolveResult,
   TourResult,
+  TourMetrics,
 } from '../../types'
+import { TourTimeline } from './TourTimeline'
 
 type ResultsPanelProps = {
   result: SolveResult
@@ -133,7 +140,7 @@ export function ResultsPanel({
         <Typography variant="subtitle1" fontWeight={700}>Tours</Typography>
         {solution.tours.map((tour) => (
           <TourCard
-            key={tour.agent_id}
+            key={`${solution.loss_config_id}-${tour.agent_id}`}
             tour={tour}
             expanded={selectedAgentId === tour.agent_id}
             onToggle={() => onSelectAgent(
@@ -170,7 +177,7 @@ function TourCard({
   expanded: boolean
   onToggle: () => void
 }) {
-  const metrics = tour.metrics
+  const [timelineOpen, setTimelineOpen] = useState(false)
   const route = [
     'Home',
     ...tour.appointment_ids.map((appointmentId) => `A${appointmentId}`),
@@ -202,20 +209,80 @@ function TourCard({
       <Collapse in={expanded} unmountOnExit>
         <Box sx={{ padding: 1.25, paddingTop: 0 }}>
           <Divider sx={{ marginBottom: 1.25 }} />
-          <Box className="metric-grid">
-            <Metric label="Distance" value={kilometers(metrics.distance)} />
-            <Metric label="Travel time" value={minutes(metrics.travel_time)} />
-            <Metric label="Elapsed time" value={minutes(metrics.elapsed_time)} />
-            <Metric label="Gain" value={metrics.gain.toLocaleString()} />
-            <Metric label="Gain/km" value={decimal(metrics.gain_per_km)} />
-            <Metric label="Gain/hour" value={decimal(metrics.gain_per_hour)} />
-            <Metric label="Lateness" value={minutes(metrics.lateness)} />
-            <Metric label="Waiting time" value={minutes(metrics.waiting_time)} />
-            <Metric label="Overtime" value={minutes(metrics.overtime)} />
-          </Box>
+          <Button
+            variant="outlined"
+            size="small"
+            aria-haspopup="dialog"
+            onClick={() => setTimelineOpen(true)}
+            sx={{ mb: 1.5 }}
+            startIcon={(
+              <Box component="svg" viewBox="0 0 20 20" aria-hidden="true" sx={{ width: 18, height: 18 }}>
+                <path d="M3 4v12h14M5 7h5m2 0h4M5 11h3m2 0h6" fill="none" stroke="currentColor" strokeWidth="2" />
+              </Box>
+            )}
+          >
+            Timeline
+          </Button>
+          <TourMetricGrid metrics={tour.metrics} />
         </Box>
       </Collapse>
+      <Dialog
+        open={expanded && timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        aria-labelledby={`tour-timeline-title-${tour.agent_id}`}
+        slotProps={{ paper: { sx: { m: { xs: 1, sm: 3 }, width: { xs: 'calc(100% - 16px)', sm: '100%' } } } }}
+      >
+        <DialogTitle id={`tour-timeline-title-${tour.agent_id}`} component="div">
+          <Stack direction="row" justifyContent="space-between" alignItems="center" gap={2}>
+            <Box>
+              <Typography variant="h6" component="h2">{tour.agent_name} · Timeline</Typography>
+              <Typography variant="body2" color="text.secondary">{route}</Typography>
+            </Box>
+            <Button onClick={() => setTimelineOpen(false)} sx={{ flexShrink: 0 }}>Close</Button>
+          </Stack>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Box sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(0, 1fr) 170px' },
+            gap: 3,
+          }}>
+            <Box sx={{ minWidth: 0 }}><TourTimeline timeline={tour.timeline} /></Box>
+            <Box sx={{
+              position: { md: 'sticky' },
+              top: 0,
+              alignSelf: 'start',
+              borderLeft: { md: '1px solid' },
+              borderTop: { xs: '1px solid', md: 0 },
+              borderColor: 'divider',
+              pl: { md: 3 },
+              pt: { xs: 2, md: 0 },
+            }}>
+              <Typography variant="subtitle2" sx={{ mb: 1.5 }}>Tour metrics</Typography>
+              <TourMetricGrid metrics={tour.metrics} singleColumn />
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
     </Paper>
+  )
+}
+
+function TourMetricGrid({ metrics, singleColumn = false }: { metrics: TourMetrics; singleColumn?: boolean }) {
+  return (
+    <Box className="metric-grid" sx={singleColumn ? { gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: '1fr' } } : {}}>
+      <Metric label="Distance" value={kilometers(metrics.distance)} />
+      <Metric label="Travel time" value={minutes(metrics.travel_time)} />
+      <Metric label="Elapsed time" value={minutes(metrics.elapsed_time)} />
+      <Metric label="Gain" value={metrics.gain.toLocaleString()} />
+      <Metric label="Gain/km" value={decimal(metrics.gain_per_km)} />
+      <Metric label="Gain/hour" value={decimal(metrics.gain_per_hour)} />
+      <Metric label="Lateness" value={minutes(metrics.lateness)} />
+      <Metric label="Waiting time" value={minutes(metrics.waiting_time)} />
+      <Metric label="Overtime" value={minutes(metrics.overtime)} />
+    </Box>
   )
 }
 

@@ -39,6 +39,7 @@ from app.schemas import (
 from app.services.geocoding import GeocodingServiceError, search_addresses
 from app.services.osrm import RoutingServiceError, get_travel_matrices
 from app.services.problem_builder import build_problem, input_coordinates
+from app.services.tour_timeline import build_tour_timeline
 
 app = FastAPI(title="MTSPA API")
 SAMPLE_DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "data.json"
@@ -329,6 +330,7 @@ def _solve_response(
                             for node_id in tour
                         ],
                         metrics=asdict(tour_metrics),
+                        timeline=build_tour_timeline(problem, agent_id, tour, appointment_id_by_node),
                     )
                     for agent_id, (tour, tour_metrics) in enumerate(
                         zip(

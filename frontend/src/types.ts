@@ -67,6 +67,24 @@ export type TourResult = {
   appointment_ids: number[]
   coordinates: Coordinate[]
   metrics: TourMetrics
+  timeline: TourTimeline
+}
+
+export type TimelineKind = 'travel' | 'waiting' | 'appointment' | 'lateness' | 'overtime' | 'available'
+
+export type TimelineSegment = {
+  kind: TimelineKind
+  start_time: number
+  end_time: number
+  appointment_id: number | null
+}
+
+export type TourTimeline = {
+  end_time: number
+  workday_start: number
+  workday_end: number
+  return_time: number
+  segments: TimelineSegment[]
 }
 
 export type TourMetrics = {

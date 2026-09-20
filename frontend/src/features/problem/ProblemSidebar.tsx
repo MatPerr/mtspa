@@ -188,8 +188,8 @@ export function ProblemSidebar(props: ProblemSidebarProps) {
             value={solver}
             onChange={(event) => setSolver(event.target.value as SolverName)}
           >
-            <MenuItem value="sa">Simulated annealing</MenuItem>
-            <MenuItem value="dp">Dynamic programming</MenuItem>
+            <MenuItem value="sa">Simulated annealing (approximate)</MenuItem>
+            <MenuItem value="dp">Dynamic programming (exact)</MenuItem>
           </Select>
         </FormControl>
         {solver === 'sa' && (

@@ -85,6 +85,21 @@ class SolveRequest(BaseModel):
         return self
 
 
+class TimelineSegmentResponse(BaseModel):
+    kind: Literal["travel", "waiting", "appointment", "lateness", "overtime", "available"]
+    start_time: int
+    end_time: int
+    appointment_id: int | None = None
+
+
+class TourTimelineResponse(BaseModel):
+    end_time: int
+    workday_start: int
+    workday_end: int
+    return_time: int
+    segments: list[TimelineSegmentResponse]
+
+
 class TourResponse(BaseModel):
     agent_id: int
     agent_name: str
@@ -92,6 +107,7 @@ class TourResponse(BaseModel):
     appointment_ids: list[int]
     coordinates: list[Coordinate]
     metrics: dict[str, int | float]
+    timeline: TourTimelineResponse
 
 
 class ConfigSolutionResponse(BaseModel):
