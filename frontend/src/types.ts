@@ -18,7 +18,16 @@ export type AppointmentDraft = Coordinate & {
 }
 
 export type PlacementMode = 'agent' | 'appointment'
+export type DataSource = 'sample' | 'manual'
 export type SolverName = 'sa' | 'dp'
+export type SampleDataset = {
+  id: string
+  name: string
+  description: string
+  agent_count: number
+  appointment_count: number
+}
+
 export type LossConfigId =
   | 'shortest_distance'
   | 'fair_hourly_pay'

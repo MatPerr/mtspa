@@ -3,6 +3,7 @@ import type {
   AppointmentDraft,
   LossConfig,
   OptimizationProgress,
+  SampleDataset,
   SolveOptions,
   SolveResult,
 } from './types'
@@ -67,11 +68,20 @@ type SampleProblemResponse = {
   }>
 }
 
-export async function loadSampleProblem(): Promise<{
+export async function loadSampleDatasets(): Promise<SampleDataset[]> {
+  const response = await fetch('/api/samples')
+  if (!response.ok) {
+    throw new Error(`Unable to load sample datasets (${response.status})`)
+  }
+  return (await response.json()) as SampleDataset[]
+}
+
+export async function loadSampleProblem(sampleId: string): Promise<{
   agents: AgentDraft[]
   appointments: AppointmentDraft[]
 }> {
-  const response = await fetch('/api/sample')
+  const query = new URLSearchParams({ sample_id: sampleId })
+  const response = await fetch(`/api/sample?${query}`)
   if (!response.ok) {
     throw new Error(`Unable to load sample data (${response.status})`)
   }

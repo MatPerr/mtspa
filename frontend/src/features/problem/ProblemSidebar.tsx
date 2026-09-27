@@ -23,10 +23,12 @@ import type {
   AgentDraft,
   AppointmentDraft,
   Coordinate,
+  DataSource,
   LossConfig,
   LossConfigId,
   OptimizationProgress,
   PlacementMode,
+  SampleDataset,
   SolveOptions,
   SolveResult,
   SolverName,
@@ -38,21 +40,25 @@ import { AppointmentForm } from './AppointmentForm'
 type ProblemSidebarProps = {
   agents: AgentDraft[]
   appointments: AppointmentDraft[]
+  dataSource: DataSource
+  selectedSampleId: string
   placementMode: PlacementMode
   pickedLocation: Coordinate | null
   loading: boolean
   optimizationProgress: OptimizationProgress | null
   sampleLoading: boolean
+  sampleDatasets: SampleDataset[]
   error: string | null
   warning: string | null
   lossConfigs: LossConfig[]
   result: SolveResult | null
   selectedConfigId: LossConfigId | null
   selectedAgentId: number | null
+  onDataSourceChange: (source: DataSource) => void
   onPlacementModeChange: (mode: PlacementMode) => void
   onAddAgent: (agent: Omit<AgentDraft, 'id'>) => void
   onAddAppointment: (appointment: Omit<AppointmentDraft, 'id'>) => void
-  onLoadSample: () => void
+  onLoadSample: (sampleId: string) => void
   onDeleteAgent: (id: string) => void
   onDeleteAppointment: (id: string) => void
   onSolve: (options: SolveOptions) => void
@@ -62,16 +68,16 @@ type ProblemSidebarProps = {
 
 export function ProblemSidebar(props: ProblemSidebarProps) {
   const [solver, setSolver] = useState<SolverName>('sa')
-  const [steps, setSteps] = useState(50_000)
-  const [runs, setRuns] = useState(1)
-  const [seed, setSeed] = useState(0)
+  const [stepsInput, setStepsInput] = useState('50000')
+  const [runsInput, setRunsInput] = useState('1')
+  const [seedInput, setSeedInput] = useState('0')
   const [lossConfigIds, setLossConfigIds] = useState<LossConfigId[]>([
     'shortest_distance',
   ])
   const [dpLossConfigIds, setDpLossConfigIds] = useState<LossConfigId[]>([
     'shortest_distance',
   ])
-  const [nodesExpanded, setNodesExpanded] = useState(true)
+  const [nodesExpanded, setNodesExpanded] = useState(false)
   const saLossConfigs = props.lossConfigs.filter(
     (config) => config.supported_solvers.includes('sa'),
   )
@@ -84,12 +90,18 @@ export function ProblemSidebar(props: ProblemSidebarProps) {
   const availableLossConfigs = solver === 'sa'
     ? saLossConfigs
     : dpLossConfigs
+  const steps = parseInteger(stepsInput)
+  const runs = parseInteger(runsInput)
+  const seed = parseInteger(seedInput)
+  const stepsValid = steps !== undefined && steps > 0
+  const runsValid = runs !== undefined && runs > 0
+  const seedValid = seedInput.trim() === '' || seed !== undefined
   const canSolve =
     props.agents.length > 0 &&
     props.appointments.length > 0 &&
     availableLossConfigs.length > 0 &&
     selectedLossConfigIds.length > 0 &&
-    (solver === 'dp' || props.agents.length >= 2)
+    (solver === 'dp' || (props.agents.length >= 2 && stepsValid && runsValid && seedValid))
   const progressPercent = props.optimizationProgress
     ? Math.floor(
         Math.min(1, props.optimizationProgress.current / props.optimizationProgress.total) * 100,
@@ -103,34 +115,60 @@ export function ProblemSidebar(props: ProblemSidebarProps) {
   return (
     <Paper square elevation={3} className="sidebar">
       <Stack spacing={2.25}>
-        <Button
-          variant="outlined"
-          fullWidth
-          disabled={props.sampleLoading || props.loading}
-          onClick={props.onLoadSample}
-        >
-          {props.sampleLoading ? 'Loading sample…' : 'Load sample data'}
-        </Button>
-
         <ToggleButtonGroup
-          value={props.placementMode}
+          aria-label="Data source"
+          value={props.dataSource}
           exclusive
           fullWidth
           size="small"
-          onChange={(_, value: PlacementMode | null) => value && props.onPlacementModeChange(value)}
+          disabled={props.sampleLoading || props.loading}
+          onChange={(_, value: DataSource | null) => {
+            if (value && value !== props.dataSource) props.onDataSourceChange(value)
+          }}
         >
-          <ToggleButton value="agent">Add agent</ToggleButton>
-          <ToggleButton value="appointment">Add appointment</ToggleButton>
+          <ToggleButton value="sample">Sample data</ToggleButton>
+          <ToggleButton value="manual">Manual data</ToggleButton>
         </ToggleButtonGroup>
 
-        {props.placementMode === 'agent' ? (
-          <AgentForm
-            pickedLocation={props.pickedLocation}
-            nextAgentNumber={props.agents.length + 1}
-            onAdd={props.onAddAgent}
-          />
+        {props.dataSource === 'sample' ? (
+          <TextField
+            select
+            label={props.sampleLoading ? 'Loading sample…' : 'Sample dataset'}
+            value={props.selectedSampleId}
+            onChange={(event) => props.onLoadSample(event.target.value)}
+            disabled={props.sampleLoading || props.loading || props.sampleDatasets.length === 0}
+            fullWidth
+            size="small"
+          >
+            {props.sampleDatasets.map((sample) => (
+              <MenuItem key={sample.id} value={sample.id}>
+                {sample.name}
+              </MenuItem>
+            ))}
+          </TextField>
         ) : (
-          <AppointmentForm pickedLocation={props.pickedLocation} onAdd={props.onAddAppointment} />
+          <Stack component="fieldset" disabled={props.loading} spacing={2} sx={{ border: 0, p: 0, m: 0, minWidth: 0 }}>
+            <ToggleButtonGroup
+              value={props.placementMode}
+              exclusive
+              fullWidth
+              size="small"
+              disabled={props.loading}
+              onChange={(_, value: PlacementMode | null) => value && props.onPlacementModeChange(value)}
+            >
+              <ToggleButton value="agent">Add agent</ToggleButton>
+              <ToggleButton value="appointment">Add appointment</ToggleButton>
+            </ToggleButtonGroup>
+            {props.placementMode === 'agent' ? (
+              <AgentForm
+                pickedLocation={props.pickedLocation}
+                nextAgentNumber={props.agents.length + 1}
+                onAdd={props.onAddAgent}
+              />
+            ) : (
+              <AppointmentForm pickedLocation={props.pickedLocation} onAdd={props.onAddAppointment} />
+            )}
+          </Stack>
         )}
 
         <Divider />
@@ -172,6 +210,7 @@ export function ProblemSidebar(props: ProblemSidebarProps) {
             <DraftList
               agents={props.agents}
               appointments={props.appointments}
+              readOnly={props.dataSource === 'sample' || props.loading}
               onDeleteAgent={props.onDeleteAgent}
               onDeleteAppointment={props.onDeleteAppointment}
             />
@@ -203,28 +242,33 @@ export function ProblemSidebar(props: ProblemSidebarProps) {
             <Stack direction="row" spacing={1}>
               <TextField
                 label="Steps"
-                type="number"
-                value={steps}
-                onChange={(event) => setSteps(Number(event.target.value))}
+                value={stepsInput}
+                onChange={(event) => setStepsInput(event.target.value)}
+                error={stepsInput.trim() !== '' && !stepsValid}
+                helperText={stepsInput.trim() !== '' && !stepsValid ? 'Enter a positive whole number.' : undefined}
                 size="small"
-                slotProps={{ htmlInput: { min: 1 } }}
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
                 fullWidth
               />
               <TextField
                 label="Runs"
-                type="number"
-                value={runs}
-                onChange={(event) => setRuns(Number(event.target.value))}
+                value={runsInput}
+                onChange={(event) => setRunsInput(event.target.value)}
+                error={runsInput.trim() !== '' && !runsValid}
+                helperText={runsInput.trim() !== '' && !runsValid ? 'Enter a positive whole number.' : undefined}
                 size="small"
-                slotProps={{ htmlInput: { min: 1 } }}
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
                 fullWidth
               />
               <TextField
                 label="Seed"
-                type="number"
-                value={seed}
-                onChange={(event) => setSeed(Number(event.target.value))}
+                value={seedInput}
+                onChange={(event) => setSeedInput(event.target.value)}
+                placeholder="Random"
+                error={!seedValid}
+                helperText={!seedValid ? 'Enter a whole number or leave blank.' : undefined}
                 size="small"
+                slotProps={{ htmlInput: { inputMode: 'numeric' } }}
                 fullWidth
               />
             </Stack>
@@ -246,11 +290,11 @@ export function ProblemSidebar(props: ProblemSidebarProps) {
         <Button
           size="large"
           variant="contained"
-          disabled={!canSolve || props.loading}
+          disabled={!canSolve || props.loading || props.sampleLoading}
           onClick={() => props.onSolve({
             solver,
-            steps,
-            runs,
+            steps: stepsValid ? steps : 50_000,
+            runs: runsValid ? runs : 1,
             seed,
             lossConfigIds: solver === 'sa'
               ? lossConfigIds
@@ -295,6 +339,12 @@ export function ProblemSidebar(props: ProblemSidebarProps) {
       </Stack>
     </Paper>
   )
+}
+
+function parseInteger(value: string): number | undefined {
+  if (!/^-?\d+$/.test(value.trim())) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) ? parsed : undefined
 }
 
 const stateCountFormatter = new Intl.NumberFormat('en', {
@@ -354,11 +404,12 @@ function LossConfigSelect({
 type DraftListProps = {
   agents: AgentDraft[]
   appointments: AppointmentDraft[]
+  readOnly: boolean
   onDeleteAgent: (id: string) => void
   onDeleteAppointment: (id: string) => void
 }
 
-function DraftList({ agents, appointments, onDeleteAgent, onDeleteAppointment }: DraftListProps) {
+function DraftList({ agents, appointments, readOnly, onDeleteAgent, onDeleteAppointment }: DraftListProps) {
   return (
     <Stack spacing={1.5}>
       <Typography variant="subtitle2">Homes ({agents.length})</Typography>
@@ -370,7 +421,7 @@ function DraftList({ agents, appointments, onDeleteAgent, onDeleteAppointment }:
             key={agent.id}
             title={agent.name}
             detail={`${agent.startTime}–${agent.endTime}`}
-            onDelete={() => onDeleteAgent(agent.id)}
+            onDelete={readOnly ? undefined : () => onDeleteAgent(agent.id)}
           />
         ))
       )}
@@ -383,7 +434,7 @@ function DraftList({ agents, appointments, onDeleteAgent, onDeleteAppointment }:
             key={appointment.id}
             title={`Appointment ${index + 1}`}
             detail={`${appointment.time} · ${appointment.durationMinutes} min · gain ${appointment.gain}`}
-            onDelete={() => onDeleteAppointment(appointment.id)}
+            onDelete={readOnly ? undefined : () => onDeleteAppointment(appointment.id)}
           />
         ))
       )}
@@ -391,14 +442,14 @@ function DraftList({ agents, appointments, onDeleteAgent, onDeleteAppointment }:
   )
 }
 
-function DraftRow({ title, detail, onDelete }: { title: string; detail: string; onDelete: () => void }) {
+function DraftRow({ title, detail, onDelete }: { title: string; detail: string; onDelete?: () => void }) {
   return (
     <Stack direction="row" justifyContent="space-between" alignItems="center" className="draft-row">
       <Box minWidth={0}>
         <Typography variant="body2" fontWeight={700} noWrap>{title}</Typography>
         <Typography variant="caption" color="text.secondary" noWrap>{detail}</Typography>
       </Box>
-      <IconButton
+      {onDelete && <IconButton
         size="small"
         aria-label={`Remove ${title}`}
         title={`Remove ${title}`}
@@ -412,7 +463,7 @@ function DraftRow({ title, detail, onDelete }: { title: string; detail: string; 
         >
           ×
         </Box>
-      </IconButton>
+      </IconButton>}
     </Stack>
   )
 }

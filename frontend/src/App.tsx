@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Box, CssBaseline, ThemeProvider } from '@mui/material'
 import {
   loadLossConfigs,
+  loadSampleDatasets,
   loadSampleProblem,
   OptimizationError,
   solveProblem,
@@ -13,17 +14,23 @@ import type {
   AgentDraft,
   AppointmentDraft,
   Coordinate,
+  DataSource,
   LossConfig,
   LossConfigId,
   OptimizationProgress,
   PlacementMode,
+  SampleDataset,
   SolveOptions,
   SolveResult,
 } from './types'
 
 export default function App() {
-  const [agents, setAgents] = useState<AgentDraft[]>([])
-  const [appointments, setAppointments] = useState<AppointmentDraft[]>([])
+  const [dataSource, setDataSource] = useState<DataSource>('sample')
+  const [manualAgents, setManualAgents] = useState<AgentDraft[]>([])
+  const [manualAppointments, setManualAppointments] = useState<AppointmentDraft[]>([])
+  const [sampleAgents, setSampleAgents] = useState<AgentDraft[]>([])
+  const [sampleAppointments, setSampleAppointments] = useState<AppointmentDraft[]>([])
+  const [selectedSampleId, setSelectedSampleId] = useState('')
   const [placementMode, setPlacementMode] = useState<PlacementMode>('agent')
   const [pickedLocation, setPickedLocation] = useState<Coordinate | null>(null)
   const [lossConfigs, setLossConfigs] = useState<LossConfig[]>([])
@@ -33,8 +40,11 @@ export default function App() {
   const [loading, setLoading] = useState(false)
   const [optimizationProgress, setOptimizationProgress] = useState<OptimizationProgress | null>(null)
   const [sampleLoading, setSampleLoading] = useState(false)
+  const [sampleDatasets, setSampleDatasets] = useState<SampleDataset[]>([])
   const [error, setError] = useState<string | null>(null)
   const [warning, setWarning] = useState<string | null>(null)
+  const agents = dataSource === 'sample' ? sampleAgents : manualAgents
+  const appointments = dataSource === 'sample' ? sampleAppointments : manualAppointments
   const activeSolution = result?.solutions.find(
     (solution) => solution.loss_config_id === selectedConfigId,
   ) ?? result?.solutions[0]
@@ -47,6 +57,14 @@ export default function App() {
       })
   }, [])
 
+  useEffect(() => {
+    loadSampleDatasets()
+      .then(setSampleDatasets)
+      .catch((caught: unknown) => {
+        setError(caught instanceof Error ? caught.message : 'Unable to load sample datasets.')
+      })
+  }, [])
+
   const invalidateResult = () => {
     setResult(null)
     setSelectedConfigId(null)
@@ -56,13 +74,13 @@ export default function App() {
   }
 
   const addAgent = (agent: Omit<AgentDraft, 'id'>) => {
-    setAgents((current) => [...current, { ...agent, id: crypto.randomUUID() }])
+    setManualAgents((current) => [...current, { ...agent, id: crypto.randomUUID() }])
     setPickedLocation(null)
     invalidateResult()
   }
 
   const addAppointment = (appointment: Omit<AppointmentDraft, 'id'>) => {
-    setAppointments((current) => [...current, { ...appointment, id: crypto.randomUUID() }])
+    setManualAppointments((current) => [...current, { ...appointment, id: crypto.randomUUID() }])
     setPickedLocation(null)
     invalidateResult()
   }
@@ -103,19 +121,18 @@ export default function App() {
     }
   }
 
-  const loadSample = async () => {
+  const loadSample = async (sampleId: string) => {
+    const previousSampleId = selectedSampleId
+    setSelectedSampleId(sampleId)
     setSampleLoading(true)
-    setError(null)
-    setWarning(null)
+    invalidateResult()
     try {
-      const sample = await loadSampleProblem()
-      setAgents(sample.agents)
-      setAppointments(sample.appointments)
+      const sample = await loadSampleProblem(sampleId)
+      setSampleAgents(sample.agents)
+      setSampleAppointments(sample.appointments)
       setPickedLocation(null)
-      setResult(null)
-      setSelectedConfigId(null)
-      setSelectedAgentId(null)
     } catch (caught) {
+      setSelectedSampleId(previousSampleId)
       setError(caught instanceof Error ? caught.message : 'Unable to load sample data.')
     } finally {
       setSampleLoading(false)
@@ -132,23 +149,33 @@ export default function App() {
             appointments={appointments}
             tours={activeSolution?.tours ?? []}
             selectedAgentId={selectedAgentId}
-            onMapClick={setPickedLocation}
+            onMapClick={(coordinate) => {
+              if (dataSource === 'manual' && !loading) setPickedLocation(coordinate)
+            }}
           />
         </Box>
         <ProblemSidebar
           agents={agents}
           appointments={appointments}
+          dataSource={dataSource}
+          selectedSampleId={selectedSampleId}
           placementMode={placementMode}
           pickedLocation={pickedLocation}
           loading={loading}
           optimizationProgress={optimizationProgress}
           sampleLoading={sampleLoading}
+          sampleDatasets={sampleDatasets}
           error={error}
           warning={warning}
           lossConfigs={lossConfigs}
           result={result}
           selectedConfigId={selectedConfigId}
           selectedAgentId={selectedAgentId}
+          onDataSourceChange={(source) => {
+            setDataSource(source)
+            setPickedLocation(null)
+            invalidateResult()
+          }}
           onPlacementModeChange={(mode) => {
             setPlacementMode(mode)
             setPickedLocation(null)
@@ -157,11 +184,11 @@ export default function App() {
           onAddAppointment={addAppointment}
           onLoadSample={loadSample}
           onDeleteAgent={(id) => {
-            setAgents((current) => current.filter((agent) => agent.id !== id))
+            setManualAgents((current) => current.filter((agent) => agent.id !== id))
             invalidateResult()
           }}
           onDeleteAppointment={(id) => {
-            setAppointments((current) => current.filter((appointment) => appointment.id !== id))
+            setManualAppointments((current) => current.filter((appointment) => appointment.id !== id))
             invalidateResult()
           }}
           onSolve={runSolver}

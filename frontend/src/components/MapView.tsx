@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import type { AgentDraft, AppointmentDraft, Coordinate, TourResult } from '../types'
 
-const TOUR_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04']
+const TOUR_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#9333ea', '#ea580c', '#0891b2', '#ca8a04', '#db2777']
 const MUTED_TOUR_COLOR = '#9ca3af'
 
 function createAgentHomeIcon(color: string) {
@@ -143,7 +143,7 @@ export function MapView({
     } else if (visibleCoordinates.length === 1) {
       map.setView(visibleCoordinates[0], 12)
     } else if (visibleCoordinates.length > 1) {
-      map.fitBounds(L.latLngBounds(visibleCoordinates), { padding: [40, 40], maxZoom: 12 })
+      map.fitBounds(L.latLngBounds(visibleCoordinates), { padding: [40, 40], maxZoom: 14 })
     }
   }, [agents, appointments, tours, selectedAgentId])
 
