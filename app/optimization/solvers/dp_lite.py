@@ -11,6 +11,7 @@ from app.optimization.objectives import (
     MetricName,
     calculate_loss,
 )
+from app.optimization.solvers.dp_reconstruction import reconstruct_tours
 
 DEFAULT_MAX_STATES = 8_000_000
 
@@ -78,6 +79,8 @@ class DynamicProgrammingSolver:
         waiting_time_weight = self.weights.get(MetricName.TOTAL_WAITING_TIME, 0)
 
         initial_state = tuple(agent_home_nodes)
+        # Key: last visited node for each agent; (4, 7) means agents 0 and 1
+        # last visited nodes 4 and 7. Value: (best partial loss, assignment code).
         states: dict[tuple[NodeId, ...], tuple[float, int]] = {
             initial_state: (0, 0)
         }
@@ -114,15 +117,15 @@ class DynamicProgrammingSolver:
                         + waiting_time_weight * waiting_time
                     )
                     next_code = assignment_code * agent_count + agent_id
-                    incumbent = next_states.get(next_state)
+                    best_known_record = next_states.get(next_state)
 
-                    if incumbent is None:
+                    if best_known_record is None:
                         if len(next_states) >= self.max_states:
                             raise StateLimitExceededError(
                                 f"DP exceeded {self.max_states:,} states"
                             )
                         next_states[next_state] = (next_loss, next_code)
-                    elif next_loss < incumbent[0]:
+                    elif next_loss < best_known_record[0]:
                         next_states[next_state] = (next_loss, next_code)
 
             if not next_states:
@@ -156,21 +159,7 @@ class DynamicProgrammingSolver:
             )
 
         best_loss, assignment_code = best_record
-        assignments = [0] * len(appointment_ids)
-        for index in range(len(appointment_ids) - 1, -1, -1):
-            assignments[index] = assignment_code % agent_count
-            assignment_code //= agent_count
-
-        tours = [[home_node] for home_node in agent_home_nodes]
-        for appointment_id, agent_id in zip(
-            appointment_ids,
-            assignments,
-            strict=True,
-        ):
-            tours[agent_id].append(appointment_id)
-        for agent_id in agent_ids:
-            tours[agent_id].append(agent_home_nodes[agent_id])
-
+        tours = reconstruct_tours(problem, appointment_ids, assignment_code)
         self.final_state_count = len(states)
         solution = self.evaluate_tours(tours)
         if not math.isclose(solution.loss, best_loss):

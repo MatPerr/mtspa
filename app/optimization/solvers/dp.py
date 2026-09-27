@@ -17,6 +17,7 @@ from app.optimization.objectives import (
 from app.optimization.problem_io import load_data
 from app.optimization.reporting import save_solution_report
 from app.optimization.results import ConfigOptimizationResult
+from app.optimization.solvers.dp_reconstruction import reconstruct_tours
 
 DEFAULT_MAX_STATES = 8_000_000
 type ProgressCallback = Callable[[int, int], None]
@@ -127,6 +128,9 @@ class DynamicProgrammingSolver:
             key=lambda node_id: (node_times[node_id], node_id),
         )
         initial_state = tuple(agent_home_nodes)
+        # Key: last visited node for each agent; (4, 7) means agents 0 and 1
+        # last visited nodes 4 and 7. Value: (best partial loss, assignment code),
+        # or (first loss, first code, second loss, second code) for two configs.
         states: dict[
             tuple[NodeId, ...],
             tuple[float, int] | tuple[float, int, float, int],
@@ -154,19 +158,19 @@ class DynamicProgrammingSolver:
             ] = {}
 
             for state, config_records in states.items():
-                for slot in agent_ids:
-                    previous_id = state[slot]
+                for agent_id in agent_ids:
+                    previous_id = state[agent_id]
                     if not can_follow[previous_id][appointment_id]:
                         continue
 
                     next_state = (
-                        state[:slot]
+                        state[:agent_id]
                         + (appointment_id,)
-                        + state[slot + 1 :]
+                        + state[agent_id + 1 :]
                     )
                     departure_time = (
-                        agent_start_times[slot]
-                        if previous_id == agent_home_nodes[slot]
+                        agent_start_times[agent_id]
+                        if previous_id == agent_home_nodes[agent_id]
                         else node_times[previous_id]
                         + node_durations[previous_id]
                     )
@@ -176,7 +180,7 @@ class DynamicProgrammingSolver:
                         - travel_times[previous_id][appointment_id]
                     )
                     travelled_distance = distances[previous_id][appointment_id]
-                    incumbent = next_states.get(next_state)
+                    best_known_record = next_states.get(next_state)
 
                     if config_count == 1:
                         loss_so_far, assignment_code = config_records
@@ -187,7 +191,7 @@ class DynamicProgrammingSolver:
                         )
                         candidate_records = (
                             candidate_loss,
-                            assignment_code * agent_count + slot,
+                            assignment_code * agent_count + agent_id,
                         )
                     else:
                         (
@@ -200,14 +204,14 @@ class DynamicProgrammingSolver:
                             first_loss
                             + first_distance_weight * travelled_distance
                             + first_waiting_weight * waiting_time,
-                            first_code * agent_count + slot,
+                            first_code * agent_count + agent_id,
                             second_loss
                             + second_distance_weight * travelled_distance
                             + second_waiting_weight * waiting_time,
-                            second_code * agent_count + slot,
+                            second_code * agent_count + agent_id,
                         )
 
-                    if incumbent is None:
+                    if best_known_record is None:
                         if len(next_states) >= self.max_states:
                             raise StateLimitExceededError(
                                 appointment_id,
@@ -231,25 +235,25 @@ class DynamicProgrammingSolver:
                                     + 99
                                 ) // 100
                     elif config_count == 1:
-                        if candidate_records[0] < incumbent[0]:
+                        if candidate_records[0] < best_known_record[0]:
                             next_states[next_state] = candidate_records
                     else:
-                        first_improves = candidate_records[0] < incumbent[0]
-                        second_improves = candidate_records[2] < incumbent[2]
+                        first_improves = candidate_records[0] < best_known_record[0]
+                        second_improves = candidate_records[2] < best_known_record[2]
                         if first_improves or second_improves:
                             next_states[next_state] = (
                                 candidate_records[0]
                                 if first_improves
-                                else incumbent[0],
+                                else best_known_record[0],
                                 candidate_records[1]
                                 if first_improves
-                                else incumbent[1],
+                                else best_known_record[1],
                                 candidate_records[2]
                                 if second_improves
-                                else incumbent[2],
+                                else best_known_record[2],
                                 candidate_records[3]
                                 if second_improves
-                                else incumbent[3],
+                                else best_known_record[3],
                             )
 
             if not next_states:
@@ -306,7 +310,7 @@ class DynamicProgrammingSolver:
                     (config_records[2], config_records[3]),
                 )
             )
-            for config_id, (
+            for config_index, (
                 (loss_so_far, assignment_code),
                 (distance_weight, _),
             ) in enumerate(
@@ -320,9 +324,9 @@ class DynamicProgrammingSolver:
                     loss_so_far
                     + distance_weight * return_distance
                 )
-                incumbent = best_records[config_id]
-                if incumbent is None or candidate_loss < incumbent[0]:
-                    best_records[config_id] = (
+                best_known_record = best_records[config_index]
+                if best_known_record is None or candidate_loss < best_known_record[0]:
+                    best_records[config_index] = (
                         candidate_loss,
                         assignment_code,
                     )
@@ -345,22 +349,7 @@ class DynamicProgrammingSolver:
             if best_record is None:
                 raise AssertionError("DP config result is missing")
             best_loss, best_code = best_record
-            assignments = [0] * len(appointment_ids)
-            remaining_code = best_code
-            for index in range(len(appointment_ids) - 1, -1, -1):
-                assignments[index] = remaining_code % agent_count
-                remaining_code //= agent_count
-
-            tours = [[home_node] for home_node in agent_home_nodes]
-            for appointment_id, slot in zip(
-                appointment_ids,
-                assignments,
-                strict=True,
-            ):
-                tours[agent_ids[slot]].append(appointment_id)
-            for agent_id in agent_ids:
-                tours[agent_id].append(agent_home_nodes[agent_id])
-
+            tours = reconstruct_tours(self.problem, appointment_ids, best_code)
             solution = self.evaluate_tours(tours, weights)
 
             if not math.isclose(solution.loss, best_loss):
