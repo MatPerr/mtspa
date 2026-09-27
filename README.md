@@ -1,4 +1,4 @@
-# MTSPA 26
+# MTSPA
 
 A routing application for assigning fixed-time appointments to multiple agents.
 It includes an exact dynamic-programming solver, a simulated-annealing solver,
@@ -19,8 +19,8 @@ the IDE extension. No separate Python installation is needed if uv's automatic
 Python downloads are enabled.
 
 ```bash
-git clone https://github.com/MatPerr/mtspa_26.git
-cd mtspa_26
+git clone https://github.com/MatPerr/mtspa.git
+cd mtspa
 uv sync --locked
 ```
 
@@ -43,7 +43,7 @@ and usage requirements still apply.
 Paste this into Codex; it is a prompt, not a shell command:
 
 ```text
-$skill-installer install https://github.com/MatPerr/mtspa_26/tree/main/.agents/skills/mtspa-routing
+$skill-installer install https://github.com/MatPerr/mtspa/tree/main/.agents/skills/mtspa-routing
 ```
 
 On the next turn, use the same `$mtspa-routing` prompt above. If the skill does
@@ -162,6 +162,11 @@ travel times in seconds.
 | `data/corsica_nurses.json` — Ajaccio - nurses | 2 | 15 | 08:00–20:00 |
 | `data/paris_deliveries.json` — Paris - trivial lunch deliveries | 8 | 80 | 11:00–15:00 |
 | `data/paris_dinner_deliveries.json.gz` — Paris - difficult dinner deliveries | 30 | 300 | 18:00–23:30 |
+
+The Belgium sample's home locations have independent random offsets of roughly
+100–300 metres; appointment locations are unchanged. Its saved distance and
+travel-time matrices were recomputed with OSRM for the shifted locations.
+Location perturbation is not a guarantee of anonymity.
 
 The new examples are synthetic: names, visit locations, schedules, and payments
 do not represent real nurses, patients, couriers, or orders. They contain saved

@@ -5,7 +5,7 @@ description: "Run MTSPA's exact dynamic-programming and simulated-annealing rout
 
 # MTSPA routing
 
-Use the existing Python solvers in https://github.com/MatPerr/mtspa_26.
+Use the existing Python solvers in https://github.com/MatPerr/mtspa.
 This is an instruction-only skill: it requires a local shell, Git, and `uv`;
 it does not include the solver code or run it remotely.
 
@@ -19,8 +19,8 @@ it does not include the solver code or run it remotely.
    an unused directory in the workspace:
 
    ```bash
-   git clone --depth 1 https://github.com/MatPerr/mtspa_26.git mtspa_26
-   cd mtspa_26
+   git clone --depth 1 https://github.com/MatPerr/mtspa.git mtspa
+   cd mtspa
    ```
 
    Reuse existing checkouts without resetting changes or pulling automatically.
