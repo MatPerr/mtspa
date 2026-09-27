@@ -37,6 +37,14 @@ class SampleProblemResponse(BaseModel):
     appointments: list[AppointmentInput]
 
 
+class SampleDatasetResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    agent_count: int
+    appointment_count: int
+
+
 class LossTermResponse(BaseModel):
     metric: str
     importance: float

@@ -3,7 +3,6 @@ import json
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import asdict
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +13,6 @@ from app.optimization.objectives import (
     LOSS_CONFIGS,
     get_loss_configs,
 )
-from app.optimization.problem_io import load_data
 from app.optimization.results import ConfigOptimizationResult
 from app.optimization.solvers.dp import (
     DynamicProgrammingSolver,
@@ -24,13 +22,12 @@ from app.optimization.solvers.sa import (
     optimize_for_loss_configs_parallel,
 )
 from app.schemas import (
-    AgentInput,
-    AppointmentInput,
     Coordinate,
     GeocodeSuggestion,
     ConfigSolutionResponse,
     LossConfigResponse,
     LossTermResponse,
+    SampleDatasetResponse,
     SampleProblemResponse,
     SolveRequest,
     SolveResponse,
@@ -39,10 +36,10 @@ from app.schemas import (
 from app.services.geocoding import GeocodingServiceError, search_addresses
 from app.services.osrm import RoutingServiceError, get_travel_matrices
 from app.services.problem_builder import build_problem, input_coordinates
+from app.services.samples import SAMPLES, list_samples, load_sample
 from app.services.tour_timeline import build_tour_timeline
 
 app = FastAPI(title="MTSPA API")
-SAMPLE_DATA_PATH = Path(__file__).resolve().parents[1] / "data" / "data.json"
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -76,37 +73,16 @@ def loss_configs() -> list[LossConfigResponse]:
     ]
 
 
+@app.get("/api/samples", response_model=list[SampleDatasetResponse])
+def sample_datasets() -> list[SampleDatasetResponse]:
+    return list_samples()
+
+
 @app.get("/api/sample", response_model=SampleProblemResponse)
-def sample_problem() -> SampleProblemResponse:
-    nodes, agents, _, _ = load_data(SAMPLE_DATA_PATH)
-    home_nodes = {
-        node.agent_id: node
-        for node in nodes
-        if node.kind == "home" and node.agent_id is not None
-    }
-    return SampleProblemResponse(
-        agents=[
-            AgentInput(
-                name=agent.name,
-                latitude=home_nodes[agent.id].latitude,
-                longitude=home_nodes[agent.id].longitude,
-                start_time=agent.start_time,
-                end_time=agent.end_time,
-            )
-            for agent in agents
-        ],
-        appointments=[
-            AppointmentInput(
-                latitude=node.latitude,
-                longitude=node.longitude,
-                time=node.time,
-                duration=node.duration,
-                gain=node.gain,
-            )
-            for node in nodes
-            if node.kind != "home"
-        ],
-    )
+def sample_problem(sample_id: str = "belgium") -> SampleProblemResponse:
+    if sample_id not in SAMPLES:
+        raise HTTPException(status_code=404, detail="Unknown sample dataset")
+    return load_sample(sample_id)
 
 
 @app.get("/api/geocode", response_model=list[GeocodeSuggestion])

@@ -1,3 +1,4 @@
+import gzip
 import json
 from pathlib import Path
 
@@ -7,7 +8,9 @@ from app.optimization.datamodel import Agent, Matrix, Node
 def load_data(
     filepath: str | Path,
 ) -> tuple[list[Node], list[Agent], Matrix[int], Matrix[int]]:
-    with Path(filepath).open(encoding="utf-8") as file:
+    path = Path(filepath)
+    opener = gzip.open(path, "rt", encoding="utf-8") if path.suffix == ".gz" else path.open(encoding="utf-8")
+    with opener as file:
         data = json.load(file)
 
     nodes = [
