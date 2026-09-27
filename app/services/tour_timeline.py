@@ -1,5 +1,7 @@
 """Build display timelines for finished solutions using the solver's time model."""
 
+from itertools import pairwise
+
 from app.optimization.datamodel import AgentId, NodeId, ProblemData, Tour
 from app.schemas import TimelineSegmentResponse, TourTimelineResponse
 
@@ -30,20 +32,20 @@ def build_tour_timeline(
                 appointment_id=appointment_id,
             ))
 
-    for origin, destination in zip(tour, tour[1:]):
-        appointment_id = appointment_id_by_node.get(destination)
-        arrival_time = current_time + problem.travel_times[origin][destination]
+    for origin_id, destination_id in pairwise(tour):
+        appointment_id = appointment_id_by_node.get(destination_id)
+        arrival_time = current_time + problem.travel_times[origin_id][destination_id]
         add_segment("travel", current_time, arrival_time, appointment_id)
-        if problem.node_is_home[destination]:
+        if problem.node_is_home[destination_id]:
             current_time = arrival_time
             continue
 
-        scheduled_time = problem.node_times[destination]
+        scheduled_time = problem.node_times[destination_id]
         service_start = max(arrival_time, scheduled_time)
         add_segment("waiting", arrival_time, service_start, appointment_id)
         # Lateness overlaps actual activity; it must not extend the activity bar.
         add_segment("lateness", scheduled_time, arrival_time, appointment_id)
-        current_time = service_start + problem.node_durations[destination]
+        current_time = service_start + problem.node_durations[destination_id]
         add_segment("appointment", service_start, current_time, appointment_id)
 
     return_time = current_time

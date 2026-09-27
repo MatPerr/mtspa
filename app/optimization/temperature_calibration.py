@@ -4,10 +4,7 @@ import statistics
 from dataclasses import dataclass
 
 from app.optimization.datamodel import ProblemData, Solution
-from app.optimization.metrics import (
-    calculate_solution_metrics,
-    calculate_tour_metrics,
-)
+from app.optimization.metrics import evaluate_neighbor_metrics
 from app.optimization.objectives import ResolvedLossConfig, calculate_loss
 from app.optimization.variation_ops import sample_neighbor
 
@@ -37,15 +34,12 @@ def estimate_typical_delta(
             continue
 
         neighbor_tours, changed_agent_ids = neighbor
-        metrics_by_tour = solution.tour_metrics.copy()
-        for agent_id in changed_agent_ids:
-            metrics_by_tour[agent_id] = calculate_tour_metrics(
-                problem,
-                agent_id,
-                neighbor_tours[agent_id],
-            )
-
-        metrics = calculate_solution_metrics(metrics_by_tour)
+        _, metrics = evaluate_neighbor_metrics(
+            problem,
+            neighbor_tours,
+            previous_metrics=solution.tour_metrics,
+            changed_agent_ids=changed_agent_ids,
+        )
         delta = calculate_loss(metrics, loss_config) - solution.loss
         if delta != 0:
             delta_magnitudes.append(abs(delta))

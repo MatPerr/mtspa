@@ -1,3 +1,4 @@
+from itertools import pairwise
 from math import sqrt
 from typing import Sequence
 
@@ -7,6 +8,7 @@ from app.optimization.datamodel import (
     SolutionMetrics,
     Tour,
     TourMetrics,
+    Tours,
 )
 
 
@@ -35,13 +37,13 @@ def calculate_tour_metrics(
     overtime = 0
     current_time = problem.agent_start_times[agent_id]
 
-    for origin, destination in zip(tour, tour[1:]):
-        leg_travel_time = problem.travel_times[origin][destination]
-        distance += problem.distances[origin][destination]
+    for origin_id, destination_id in pairwise(tour):
+        leg_travel_time = problem.travel_times[origin_id][destination_id]
+        distance += problem.distances[origin_id][destination_id]
         travel_time += leg_travel_time
         arrival_time = current_time + leg_travel_time
 
-        if problem.node_is_home[destination]:
+        if problem.node_is_home[destination_id]:
             overtime = max(
                 0,
                 arrival_time - problem.agent_end_times[agent_id],
@@ -49,13 +51,13 @@ def calculate_tour_metrics(
             current_time = arrival_time
             continue
 
-        scheduled_time = problem.node_times[destination]
+        scheduled_time = problem.node_times[destination_id]
         time_difference = arrival_time - scheduled_time
         waiting_time += max(0, -time_difference)
         lateness += max(0, time_difference)
         current_time = (
             max(arrival_time, scheduled_time)
-            + problem.node_durations[destination]
+            + problem.node_durations[destination_id]
         )
 
     gain = sum(problem.node_gains[node_id] for node_id in tour[1:-1])
@@ -181,3 +183,37 @@ def calculate_solution_metrics(
             count,
         ),
     )
+
+
+def evaluate_neighbor_metrics(
+    problem: ProblemData,
+    tours: Tours,
+    *,
+    previous_metrics: list[TourMetrics],
+    changed_agent_ids: tuple[AgentId, ...],
+) -> tuple[list[TourMetrics], SolutionMetrics]:
+    """Evaluate a neighbor by recalculating only its changed routes.
+
+    Args:
+        problem: Routing data used to simulate the changed routes.
+        tours: Proposed routes indexed by agent ID.
+        previous_metrics: Cached route metrics indexed by agent ID. Records
+            for unchanged routes must still describe the corresponding tours.
+        changed_agent_ids: IDs of every agent whose route has changed.
+
+    Returns:
+        A new list of per-route metrics and their combined solution metrics.
+        The input tours and previous_metrics list are left unchanged.
+    """
+    metrics_by_tour = previous_metrics.copy()
+
+    for agent_id in changed_agent_ids:
+        metrics_by_tour[agent_id] = calculate_tour_metrics(
+            problem,
+            agent_id,
+            tours[agent_id],
+        )
+
+    combined_metrics = calculate_solution_metrics(metrics_by_tour)
+
+    return metrics_by_tour, combined_metrics

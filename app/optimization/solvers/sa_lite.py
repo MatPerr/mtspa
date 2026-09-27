@@ -9,6 +9,7 @@ from app.optimization.loss_calibration import resolve_loss_config
 from app.optimization.metrics import (
     calculate_solution_metrics,
     calculate_tour_metrics,
+    evaluate_neighbor_metrics,
 )
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
@@ -50,20 +51,19 @@ class SimulatedAnnealingSolver:
                 calculate_tour_metrics(self.problem, agent_id, tour)
                 for agent_id, tour in enumerate(tours)
             ]
+            metrics = calculate_solution_metrics(metrics_by_tour)
         else:
             if changed_agent_ids is None:
                 raise ValueError(
                     "changed_agent_ids is required with a previous solution"
                 )
-            metrics_by_tour = previous.tour_metrics.copy()
-            for agent_id in changed_agent_ids:
-                metrics_by_tour[agent_id] = calculate_tour_metrics(
-                    self.problem,
-                    agent_id,
-                    tours[agent_id],
-                )
+            metrics_by_tour, metrics = evaluate_neighbor_metrics(
+                self.problem,
+                tours,
+                previous_metrics=previous.tour_metrics,
+                changed_agent_ids=changed_agent_ids,
+            )
 
-        metrics = calculate_solution_metrics(metrics_by_tour)
         return Solution(
             tours=tours,
             tour_metrics=metrics_by_tour,

@@ -7,6 +7,7 @@ from app.optimization.datamodel import ProblemData
 from app.optimization.metrics import (
     calculate_solution_metrics,
     calculate_tour_metrics,
+    evaluate_neighbor_metrics,
 )
 from app.optimization.objectives import (
     AnyLossConfig,
@@ -50,15 +51,11 @@ def estimate_metric_scales(
             continue
 
         neighbor_tours, changed_agent_ids = neighbor
-        neighbor_metrics_by_tour = metrics_by_tour.copy()
-        for agent_id in changed_agent_ids:
-            neighbor_metrics_by_tour[agent_id] = calculate_tour_metrics(
-                problem,
-                agent_id,
-                neighbor_tours[agent_id],
-            )
-        neighbor_metrics = calculate_solution_metrics(
-            neighbor_metrics_by_tour
+        neighbor_metrics_by_tour, neighbor_metrics = evaluate_neighbor_metrics(
+            problem,
+            neighbor_tours,
+            previous_metrics=metrics_by_tour,
+            changed_agent_ids=changed_agent_ids,
         )
 
         for metric in selected_metrics:
