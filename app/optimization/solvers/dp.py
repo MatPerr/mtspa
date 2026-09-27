@@ -438,9 +438,9 @@ class DynamicProgrammingSolver:
 
 
 def main() -> None:
-    """Parse CLI options, solve with DP, and write JSON and SVG reports."""
+    """Solve the selected objective with DP and export complete JSON/SVG reports."""
     parser = argparse.ArgumentParser(
-        description="Solve the fixed-time routing problem exactly for distance"
+        description="Solve the fixed-time routing problem exactly for the selected objective"
     )
     parser.add_argument(
         "filepath",
@@ -475,15 +475,21 @@ def main() -> None:
         max_states=arguments.max_states,
         loss_configs=(LOSS_CONFIGS[arguments.loss_config],),
     )
+    started = time.perf_counter()
     solution = optimizer.optimize()
+    elapsed_seconds = time.perf_counter() - started
     summary_path, svg_path = save_solution_report(
         problem,
         solution,
-        optimizer.final_state_count,
-        optimizer.elapsed_seconds,
+        elapsed_seconds,
         arguments.output,
+        solver="dp",
+        loss_config=optimizer.loss_configs[0],
+        weights=optimizer.weights_by_config[0],
+        run_settings={"max_states": arguments.max_states, "final_dp_states": optimizer.final_state_count},
     )
 
+    print(f"Objective: {optimizer.loss_configs[0].name} (exact)")
     print(f"Total distance: {solution.metrics.total_distance / 1000:.3f} km")
     print(f"Total gain per hour: {solution.metrics.total_gain_per_hour:.3f}")
     print(f"Gain-per-hour standard deviation: {solution.metrics.gain_per_hour_std:.3f}")
@@ -493,7 +499,7 @@ def main() -> None:
     print(f"Total overtime: {solution.metrics.total_overtime / 60:.1f} min")
     print(f"Overtime standard deviation: {solution.metrics.overtime_std / 60:.1f} min")
     print(f"Final DP states: {optimizer.final_state_count:,}")
-    print(f"Elapsed: {optimizer.elapsed_seconds:.3f} s")
+    print(f"Elapsed: {elapsed_seconds:.3f} s")
     print(f"Summary: {summary_path}")
     print(f"Visualization: {svg_path}")
 

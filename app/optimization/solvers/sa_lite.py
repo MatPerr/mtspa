@@ -1,8 +1,13 @@
-"""Simulated annealing without application or progress-reporting concerns."""
+"""Single-objective simulated annealing with a minimal console entry point."""
 
+import argparse
 import math
 import random
-from concurrent.futures import ProcessPoolExecutor
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+
+from tqdm import tqdm
 
 from app.optimization.datamodel import AgentId, ProblemData, Solution, Tours
 from app.optimization.loss_calibration import calibrate_loss_weights
@@ -17,6 +22,7 @@ from app.optimization.objectives import (
     MetricName,
     calculate_loss,
 )
+from app.optimization.problem_io import load_data
 from app.optimization.temperature_calibration import calibrate_temperature
 from app.optimization.variation_ops import initialize_random_tours, sample_neighbor
 
@@ -110,7 +116,7 @@ class SimulatedAnnealingSolver:
             loss=calculate_loss(metrics, self.weights),
         )
 
-    def optimize(self, steps: int) -> Solution:
+    def optimize(self, steps: int, *, show_progress: bool = False) -> Solution:
         """Search from a fresh random solution using simulated annealing.
 
         Calibrate temperature around the initial solution, then cool it
@@ -120,6 +126,7 @@ class SimulatedAnnealingSolver:
 
         Args:
             steps: Positive number of move attempts, including unavailable moves.
+            show_progress: Display a tqdm bar counting attempted steps.
 
         Returns:
             Lowest-loss solution encountered. Optimality and timing feasibility
@@ -142,7 +149,7 @@ class SimulatedAnnealingSolver:
         )
         temperature = temperature_config.initial_temperature
 
-        for _ in range(steps):
+        for _ in tqdm(range(steps), desc="SA steps", unit="step", disable=not show_progress):
             neighbor = sample_neighbor(
                 self.problem,
                 self.rng,
@@ -174,7 +181,9 @@ class SimulatedAnnealingSolver:
 
         return best
 
-    def optimize_parallel(self, steps: int, n_runs: int) -> Solution:
+    def optimize_parallel(
+        self, steps: int, n_runs: int, *, show_progress: bool = False
+    ) -> Solution:
         """Run independently seeded searches in worker processes.
 
         Each worker reuses calibrated weights and receives a seed drawn
@@ -183,6 +192,7 @@ class SimulatedAnnealingSolver:
         Args:
             steps: Positive number of move attempts per run.
             n_runs: Positive number of independent searches.
+            show_progress: Display completed runs; worker step bars stay disabled.
 
         Returns:
             Lowest-loss solution among the completed runs.
@@ -209,6 +219,50 @@ class SimulatedAnnealingSolver:
                 executor.submit(solver.optimize, steps)
                 for solver in solvers
             ]
+            for future in tqdm(
+                as_completed(futures), total=n_runs, desc="SA runs", unit="run",
+                disable=not show_progress,
+            ):
+                future.result()
+            # Preserve submission order so equal-loss ties are reproducible.
             solutions = [future.result() for future in futures]
 
         return min(solutions, key=lambda solution: solution.loss)
+
+
+def main() -> None:
+    """Run the minimal solver and print the best solution, without file exports."""
+    parser = argparse.ArgumentParser(description="Run minimal simulated annealing")
+    parser.add_argument("filepath", nargs="?", type=Path, default=Path("data/data.json"))
+    parser.add_argument("--steps", type=int, default=50_000)
+    parser.add_argument("--runs", type=int, default=1)
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--no-progress", action="store_true")
+    arguments = parser.parse_args()
+    if arguments.steps <= 0 or arguments.runs <= 0:
+        parser.error("--steps and --runs must be positive")
+
+    problem = ProblemData(*load_data(arguments.filepath))
+    solver = SimulatedAnnealingSolver(problem, seed=arguments.seed)
+    started = time.perf_counter()
+    if arguments.runs == 1:
+        solution = solver.optimize(arguments.steps, show_progress=not arguments.no_progress)
+    else:
+        solution = solver.optimize_parallel(
+            arguments.steps, arguments.runs, show_progress=not arguments.no_progress,
+        )
+    elapsed_seconds = time.perf_counter() - started
+
+    print(f"Objective: {solver.loss_config.name} (approximate)")
+    print(f"Elapsed: {elapsed_seconds:.3f} s ({arguments.runs} run(s), {arguments.steps:,} steps each)")
+    print(f"Loss: {solution.loss:.3f}")
+    print(f"Total distance: {solution.metrics.total_distance / 1000:.3f} km")
+    print(f"Total lateness: {solution.metrics.total_lateness} s")
+    print(f"Total overtime: {solution.metrics.total_overtime} s")
+    print("Tours (node IDs, including homes):")
+    for agent, tour in zip(problem.agents, solution.tours, strict=True):
+        print(f"  {agent.name}: {' -> '.join(map(str, tour))}")
+
+
+if __name__ == "__main__":
+    main()

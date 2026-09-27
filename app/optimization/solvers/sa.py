@@ -32,6 +32,7 @@ from app.optimization.objectives import (
     calculate_loss,
 )
 from app.optimization.problem_io import load_data
+from app.optimization.reporting import save_solution_report
 from app.optimization.results import (
     AnnealingHistory,
     AnnealingHistoryPoint,
@@ -557,7 +558,7 @@ def _run_config_jobs_with_progress(
 
 
 def main() -> None:
-    """Parse CLI options, run annealing, and print route and metric summaries."""
+    """Run annealing and export the best solution as complete JSON/SVG reports."""
     parser = argparse.ArgumentParser(
         description="Solve the routing problem with simulated annealing"
     )
@@ -570,6 +571,7 @@ def main() -> None:
     parser.add_argument("--steps", type=int, default=50_000)
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--seed", type=int)
+    parser.add_argument("--output", type=Path, default=Path("artifacts"))
     parser.add_argument(
         "--loss-config",
         choices=LOSS_CONFIGS,
@@ -595,7 +597,18 @@ def main() -> None:
             n_runs=arguments.runs,
         )
     elapsed_seconds = time.perf_counter() - started
+    summary_path, svg_path = save_solution_report(
+        problem,
+        solution,
+        elapsed_seconds,
+        arguments.output,
+        solver="sa",
+        loss_config=solver.loss_config,
+        weights=solver.weights,
+        run_settings={"steps": arguments.steps, "runs": arguments.runs, "seed": arguments.seed},
+    )
 
+    print(f"Objective: {solver.loss_config.name} (approximate)")
     print(f"Total distance: {solution.metrics.total_distance / 1000:.3f} km")
     print(f"Distance standard deviation: {solution.metrics.distance_std / 1000:.3f} km")
     print(f"Total travel time: {solution.metrics.total_travel_time / 60:.1f} min")
@@ -614,6 +627,8 @@ def main() -> None:
     print(f"Total overtime: {solution.metrics.total_overtime / 60:.1f} min")
     print(f"Overtime standard deviation: {solution.metrics.overtime_std / 60:.1f} min")
     print(f"Elapsed: {elapsed_seconds:.3f} s")
+    print(f"Summary: {summary_path}")
+    print(f"Visualization: {svg_path}")
     print("Tours:")
     for agent, tour in zip(problem.agents, solution.tours, strict=True):
         route = " -> ".join(map(str, tour))

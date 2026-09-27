@@ -1,47 +1,65 @@
 import html
 import json
 import math
+import textwrap
+from dataclasses import asdict
 from pathlib import Path
 
 from app.optimization.datamodel import ProblemData, Solution, Tour, TourMetrics
+from app.optimization.objectives import LossConfig, MetricName, SolverName
 
 
 def save_solution_report(
     problem: ProblemData,
     solution: Solution,
-    final_state_count: int,
     elapsed_seconds: float,
     output_directory: str | Path = "artifacts",
+    *,
+    solver: SolverName,
+    loss_config: LossConfig,
+    weights: dict[MetricName, float],
+    run_settings: dict[str, int | None] | None = None,
 ) -> tuple[Path, Path]:
-    """Write a distance summary and standalone SVG visualization to disk.
+    """Write complete solution metrics and a standalone SVG for either solver.
 
-    Create the destination directory if needed and overwrite the two fixed
-    report filenames when they already exist.
+    Filenames include the solver and objective, so different methods/configs
+    coexist. Repeating the same solver/config in one directory overwrites its
+    two files. Metrics use dataclass field names and explicitly documented units.
 
     Args:
         problem: Routing data used for names, coordinates, and appointment times.
         solution: Evaluated solution to report.
-        final_state_count: Number of states in the final DP layer.
-        elapsed_seconds: Solver runtime to display in seconds.
+        elapsed_seconds: Wall time of optimization, including all parallel runs
+            when applicable, excluding input loading, loss-weight calibration
+            and reporting. SA temperature calibration is part of optimization.
         output_directory: Directory receiving the JSON and SVG files.
+        solver: Algorithm identifier; DP is exact and SA is approximate.
+        loss_config: Objective selected for this result.
+        weights: Calibrated weights actually used to score this solution.
+        run_settings: Algorithm-specific settings/statistics, such as DP state
+            counts or SA steps, run count and master seed.
 
     Returns:
-        Paths to optimal_distance_summary.json and optimal_distance_tours.svg.
+        Paths to <solver>_<config>_summary.json and <solver>_<config>_tours.svg.
 
     Raises:
         OSError: The output directory or either report cannot be written.
     """
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
-    summary_path = output_directory / "optimal_distance_summary.json"
-    svg_path = output_directory / "optimal_distance_tours.svg"
+    prefix = f"{solver}_{loss_config.id}"
+    summary_path = output_directory / f"{prefix}_summary.json"
+    svg_path = output_directory / f"{prefix}_tours.svg"
     summary_path.write_text(
         json.dumps(
             _summary_data(
                 problem,
                 solution,
-                final_state_count,
                 elapsed_seconds,
+                solver,
+                loss_config,
+                weights,
+                run_settings or {},
             ),
             ensure_ascii=False,
             indent=2,
@@ -53,8 +71,10 @@ def save_solution_report(
         _render_svg(
             problem,
             solution,
-            final_state_count,
             elapsed_seconds,
+            solver,
+            loss_config,
+            run_settings or {},
         ),
         encoding="utf-8",
     )
@@ -64,25 +84,35 @@ def save_solution_report(
 def _summary_data(
     problem: ProblemData,
     solution: Solution,
-    final_state_count: int,
     elapsed_seconds: float,
+    solver: SolverName,
+    loss_config: LossConfig,
+    weights: dict[MetricName, float],
+    run_settings: dict[str, int | None],
 ) -> dict[str, object]:
-    """Build the JSON-compatible summary for a minimum-distance report.
-
-    Args:
-        problem: Routing data identifying agents and appointments.
-        solution: Evaluated routes to summarize.
-        final_state_count: Number of states in the final DP layer.
-        elapsed_seconds: Solver runtime in seconds.
-
-    Returns:
-        Overall distance and search statistics plus per-agent route summaries.
-    """
+    """Serialize the selected objective, actual weights and every metric."""
     return {
-        "objective": "minimum total distance",
-        "total_distance_m": solution.metrics.total_distance,
-        "final_dp_states": final_state_count,
+        "solver": solver,
+        "method": "exact" if solver == "dp" else "approximate",
+        "objective": {
+            "id": loss_config.id,
+            "name": loss_config.name,
+            "description": loss_config.description,
+            "importances": dict(loss_config.importances),
+            "weights": dict(weights),
+        },
+        "loss": solution.loss,
         "elapsed_seconds": elapsed_seconds,
+        "run_settings": run_settings,
+        "units": {
+            "distance": "metres",
+            "time": "seconds",
+            "gain": "input gain units",
+            "gain_per_km": "input gain units per kilometre",
+            "gain_per_hour": "input gain units per elapsed hour",
+        },
+        "timing_feasible": solution.metrics.total_lateness == 0 and solution.metrics.total_overtime == 0,
+        "metrics": asdict(solution.metrics),
         "agents": {
             str(agent_id): _tour_data(
                 problem,
@@ -110,8 +140,7 @@ def _tour_data(
         metrics: Previously evaluated metrics for this route.
 
     Returns:
-        Agent name, node IDs, appointment count, distance in metres, travel
-        time in seconds, and total gain.
+        Agent name, ordered node IDs, appointment count and all TourMetrics.
     """
     appointments = tour[1:-1]
     return {
@@ -119,29 +148,31 @@ def _tour_data(
         "tour": tour,
         "appointments": appointments,
         "appointment_count": len(appointments),
-        "distance_m": metrics.distance,
-        "travel_time_s": metrics.travel_time,
-        "gain": metrics.gain,
+        "metrics": asdict(metrics),
     }
 
 
 def _render_svg(
     problem: ProblemData,
     solution: Solution,
-    final_state_count: int,
     elapsed_seconds: float,
+    solver: SolverName,
+    loss_config: LossConfig,
+    run_settings: dict[str, int | None],
 ) -> str:
     """Render a geographic route overview and per-agent summaries as SVG.
 
     Project coordinates onto a simple local plane and draw straight segments
-    between visits; the drawing does not represent road geometry. The problem
-    must have nonzero latitude and longitude extents for the map scaling.
+    between visits; the drawing does not represent road geometry. Extend the
+    canvas for large teams and wrap long route labels instead of clipping them.
 
     Args:
         problem: Routing data with coordinates, agent names, and scheduled times.
         solution: Complete evaluated assignment to visualize.
-        final_state_count: Number of states in the final DP layer.
         elapsed_seconds: Solver runtime in seconds.
+        solver: Algorithm identifier for the exact/approximate title.
+        loss_config: Selected objective for the title.
+        run_settings: DP state counts or SA iteration/run counts when supplied.
 
     Returns:
         A standalone SVG document with routes colored by agent.
@@ -150,9 +181,8 @@ def _render_svg(
         ValueError: A home node has no associated agent ID.
     """
     width = 1600
-    height = 980
     map_left = 55
-    map_top = 100
+    map_top = 140
     map_width = 970
     map_height = 810
     panel_left = 1060
@@ -167,6 +197,16 @@ def _render_svg(
     ]
     nodes = problem.nodes
     agents = problem.agents
+    cards = [
+        (
+            textwrap.wrap(agents[agent_id].name, width=38),
+            _tour_lines(problem, tour, solution.tour_metrics[agent_id]),
+        )
+        for agent_id, tour in enumerate(solution.tours)
+    ]
+    card_heights = [24 * len(names) + 21 * len(lines) + 24 for names, lines in cards]
+    panel_height = max(map_height, 70 + sum(card_heights))
+    height = map_top + panel_height + 70
     mean_latitude = sum(node.latitude for node in nodes) / len(nodes)
     longitude_scale = math.cos(math.radians(mean_latitude))
     projected = {
@@ -181,8 +221,8 @@ def _render_svg(
     min_y = min(point[1] for point in projected.values())
     max_y = max(point[1] for point in projected.values())
     scale = min(
-        map_width / (max_x - min_x),
-        map_height / (max_y - min_y),
+        map_width / max(max_x - min_x, 1e-9),
+        map_height / max(max_y - min_y, 1e-9),
     ) * 0.92
     used_width = (max_x - min_x) * scale
     used_height = (max_y - min_y) * scale
@@ -209,6 +249,14 @@ def _render_svg(
         for agent_id, tour in enumerate(solution.tours)
         for node_id in tour[1:-1]
     }
+    solver_label = "Dynamic programming (exact)" if solver == "dp" else "Simulated annealing (approximate)"
+    run_description = ""
+    if solver == "dp" and "final_dp_states" in run_settings:
+        run_description = f'{run_settings["final_dp_states"]:,} final DP states · '
+    elif solver == "sa" and "steps" in run_settings and "runs" in run_settings:
+        run_description = f'{run_settings["runs"]} runs × {run_settings["steps"]:,} steps · '
+    metrics = solution.metrics
+    timing_color = "#b91c1c" if metrics.total_lateness or metrics.total_overtime else "#475569"
     svg = [
         (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
@@ -221,14 +269,21 @@ def _render_svg(
         ),
         (
             '<text x="55" y="48" font-size="30" font-weight="700" '
-            'fill="#0f172a">Exact minimum-distance tours</text>'
+            f'fill="#0f172a">{html.escape(solver_label)} — {html.escape(loss_config.name)}</text>'
         ),
         (
             '<text x="55" y="77" font-size="17" fill="#475569">'
             f'Total distance: {solution.metrics.total_distance / 1000:.2f} km · '
             f'{len(assignment)} appointments · {len(solution.tours)} agents · '
-            f'{final_state_count:,} final DP states · '
+            f'{run_description}'
             f'{elapsed_seconds:.2f} s</text>'
+        ),
+        (
+            f'<text x="55" y="106" font-size="17" fill="{timing_color}">'
+            f'Lateness: {metrics.total_lateness / 60:.2f} min · '
+            f'Waiting: {metrics.total_waiting_time / 60:.2f} min · '
+            f'Overtime: {metrics.total_overtime / 60:.2f} min · '
+            f'Loss: {solution.loss:.3f}</text>'
         ),
         (
             f'<rect x="{map_left}" y="{map_top}" width="{map_width}" '
@@ -289,7 +344,7 @@ def _render_svg(
         [
             (
                 f'<rect x="{panel_left}" y="{map_top}" width="485" '
-                f'height="{map_height}" rx="16" fill="#ffffff" '
+                f'height="{panel_height}" rx="16" fill="#ffffff" '
                 'stroke="#cbd5e1"/>'
             ),
             (
@@ -300,68 +355,55 @@ def _render_svg(
         ]
     )
 
-    for agent_id, tour in enumerate(solution.tours):
-        metrics = _tour_data(
-            problem,
-            agent_id,
-            tour,
-            solution.tour_metrics[agent_id],
-        )
+    y = map_top + 78
+    for agent_id, ((name_lines, detail_lines), card_height) in enumerate(zip(cards, card_heights, strict=True)):
         color = colors[agent_id % len(colors)]
-        y = map_top + 78 + agent_id * 100
-        route_text = " → ".join(map(str, tour))
-        appointment_times = [
-            _format_time(nodes[node_id].time)
-            for node_id in metrics["appointments"]
-        ]
-        time_text = (
-            ", ".join(appointment_times)
-            if appointment_times
-            else "No appointments"
+        svg.append(
+            f'<line x1="{panel_left + 25}" y1="{y}" '
+            f'x2="{panel_left + 60}" y2="{y}" stroke="{color}" '
+            'stroke-width="6" stroke-linecap="round"/>'
         )
-        svg.extend(
-            [
-                (
-                    f'<line x1="{panel_left + 25}" y1="{y}" '
-                    f'x2="{panel_left + 60}" y2="{y}" stroke="{color}" '
-                    'stroke-width="6" stroke-linecap="round"/>'
-                ),
-                (
-                    f'<text x="{panel_left + 75}" y="{y + 6}" '
-                    'font-size="17" font-weight="700" fill="#0f172a">'
-                    f'{html.escape(agents[agent_id].name)}</text>'
-                ),
-                (
-                    f'<text x="{panel_left + 25}" y="{y + 31}" '
-                    'font-size="14" fill="#334155">'
-                    f'{metrics["appointment_count"]} appointments · '
-                    f'{metrics["distance_m"] / 1000:.2f} km · '
-                    f'{metrics["travel_time_s"] / 60:.0f} min travel · '
-                    f'gain {metrics["gain"]}</text>'
-                ),
-                (
-                    f'<text x="{panel_left + 25}" y="{y + 53}" '
-                    f'font-size="13" fill="#64748b">Nodes: {route_text}</text>'
-                ),
-                (
-                    f'<text x="{panel_left + 25}" y="{y + 73}" '
-                    f'font-size="13" fill="#64748b">Times: {time_text}</text>'
-                ),
-            ]
-        )
+        for offset, name in enumerate(name_lines):
+            svg.append(
+                f'<text x="{panel_left + 75}" y="{y + 6 + 24 * offset}" '
+                f'font-size="17" font-weight="700" fill="#0f172a">{html.escape(name)}</text>'
+            )
+        for offset, line in enumerate(detail_lines):
+            line_y = y + 6 + 24 * len(name_lines) + 21 * offset
+            svg.append(
+                f'<text x="{panel_left + 25}" y="{line_y}" '
+                f'font-size="13" fill="#475569">{html.escape(line)}</text>'
+            )
+        y += card_height
 
     svg.extend(
         [
             (
-                '<text x="55" y="948" font-size="13" fill="#64748b">'
+                f'<text x="55" y="{height - 28}" font-size="13" fill="#64748b">'
                 'Straight segments show visit order, not road geometry. '
-                'Optimization uses D; feasibility uses appointment times, '
-                'durations, T, startTime, and endTime.</text>'
+                'The selected objective uses calibrated metric weights; '
+                'driving times do not model live traffic.</text>'
             ),
             '</svg>',
         ]
     )
     return "\n".join(svg)
+
+
+def _tour_lines(problem: ProblemData, tour: Tour, metrics: TourMetrics) -> list[str]:
+    """Format every per-tour metric and wrap visit IDs/times for the SVG panel."""
+    appointments = tour[1:-1]
+    times = ", ".join(_format_time(problem.nodes[node].time) for node in appointments) or "No appointments"
+    lines = [
+        f"{len(appointments)} appointments · {metrics.distance / 1000:.2f} km · "
+        f"{metrics.travel_time / 60:.1f} min travel",
+        f"Gain: {metrics.gain} · {metrics.gain_per_km:.2f}/km · {metrics.gain_per_hour:.2f}/h",
+        f"Elapsed: {metrics.elapsed_time / 60:.1f} min · Waiting: {metrics.waiting_time / 60:.1f} min",
+        f"Lateness: {metrics.lateness / 60:.2f} min · Overtime: {metrics.overtime / 60:.2f} min",
+        "Nodes: " + " → ".join(map(str, tour)),
+        "Scheduled times: " + times,
+    ]
+    return [part for line in lines for part in textwrap.wrap(line, width=56)]
 
 
 def _format_time(seconds: int) -> str:

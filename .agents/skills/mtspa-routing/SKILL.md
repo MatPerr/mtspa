@@ -1,6 +1,6 @@
 ---
 name: mtspa-routing
-description: "Run MTSPA's exact dynamic-programming and simulated-annealing route solvers on bundled samples or saved MTSPA datasets. Use to assign fixed-time appointments to agents, compare route quality and runtime, or demonstrate the routing algorithms. Not for general travel planning or modifying the solver implementation."
+description: "Run MTSPA's exact dynamic-programming and simulated-annealing route solvers on bundled samples, saved datasets, or user-provided agents and appointments. Use to prepare manual routing data from addresses or coordinates, assign fixed-time appointments, compare route quality and runtime, or demonstrate the algorithms. Not for general travel planning or modifying the solver implementation."
 ---
 
 # MTSPA routing
@@ -32,9 +32,22 @@ Run all commands below from that repository root. Setup needs network access;
 subsequent solves on bundled data use saved matrices without OSRM requests.
 No frontend, API server, Node.js, or additional API key is required.
 
+## User-provided agents and appointments
+
+For manual input (conversation, table, CSV, or JSON without travel matrices),
+read [Manual data](references/manual-data.md). It provides the required fields,
+address-resolution workflow, and a runnable recipe using the existing schemas,
+Photon/OSRM clients, and problem builder to save a solver-ready dataset.
+
+Ask for missing locations, working hours, appointment times, durations, or gains;
+do not silently invent them. Explain which information goes to external services
+before querying them. Resolve ambiguous addresses with the user. Keep personal
+inputs and generated reports under the ignored `artifacts/` directory or outside
+the repository, and do not publish them without explicit authorization.
+
 ## Quick interview demo
 
-Unless the user specifies a dataset, use `data/corsica_nurses.json`: two agents,
+For a demo without user-provided data, use `data/corsica_nurses.json`: two agents,
 15 fixed-time visits, and an 08:00–20:00 workday. The names and visit locations
 are synthetic. Compare both methods using the existing command:
 
@@ -49,8 +62,9 @@ directory; the report writer overwrites its two fixed filenames on repeated runs
 uv run python -m app.optimization.solvers.dp data/corsica_nurses.json --max-states 200000 --output artifacts/interview-dp
 ```
 
-Read and link the generated `optimal_distance_summary.json` and
-`optimal_distance_tours.svg` files. The SVG shows geographic connections,
+Read the generated `dp_shortest_distance_summary.json`, display the routes and
+image in chat as described below, and link both it and
+`dp_shortest_distance_tours.svg`. The SVG shows geographic connections,
 not road-following geometry. Do not start the web app unless requested.
 
 ## Other datasets and objectives
@@ -64,15 +78,21 @@ not road-following geometry. Do not start the web app unless requested.
 For SA alone, or to choose an objective:
 
 ```bash
-uv run python -m app.optimization.solvers.sa data/corsica_nurses.json --steps 50000 --runs 2 --seed 0 --loss-config fair_hourly_pay
+uv run python -m app.optimization.solvers.sa data/corsica_nurses.json \
+  --steps 50000 --runs 2 --seed 0 --loss-config fair_hourly_pay --output artifacts/interview-sa
 ```
 
 SA accepts `shortest_distance`, `fair_hourly_pay`, `fair_distance`, and
 `maximum_uptime`. DP accepts only `shortest_distance` and `maximum_uptime`,
 selected with its `--loss-config` option. The comparison command uses the
 default shortest-distance objective and has no loss-config option.
-For maximum-uptime DP, report the selected objective explicitly: the export's
-filenames and JSON objective label are currently distance-oriented.
+
+Both solver CLIs export `<solver>_<loss_config>_summary.json` and
+`<solver>_<loss_config>_tours.svg` in their `--output` directory (default:
+`artifacts/`). For the SA example these start with `sa_fair_hourly_pay`.
+Report names and labels reflect the selected objective. Repeating a solver/config
+overwrites its two files; use an unused directory to preserve earlier runs.
+The comparison CLI prints a table but does not export files itself.
 
 Respect the requested steps, runs, and DP state budget. A DP state-limit error
 does not prove infeasibility; explain it and propose SA or a larger approved
@@ -84,17 +104,32 @@ For a supplied `.json` or `.json.gz` dataset, read
 the existing format: `nodes`, `agents`, `D`, and `T`; consecutive zero-based IDs;
 one home per agent; matrix rows and columns indexed by node ID. Distances are
 metres, travel times and durations are seconds, and appointment/workday times
-are seconds from midnight. Never invent travel matrices. If only addresses or
-coordinates are supplied, explain that routing data is still needed; the web/API
-workflow sends coordinates to public OSRM and address queries to Photon.
+are seconds from midnight. Never invent travel matrices. For missing matrices,
+follow [Manual data](references/manual-data.md); no web server is needed.
 
 ## Interpret and present results
 
+- Read the JSON report, not just rounded console values. Both solvers export
+  complete solution `metrics` and per-agent `agents[id].metrics`, with units,
+  calibrated weights in `objective.weights`, loss, runtime, and `run_settings`.
+  `timing_feasible` indicates zero lateness and overtime. Link the JSON and SVG.
+- Display every agent's route in the chat, not just aggregate metrics or a file
+  link: agent name, home → ordered appointments → home, distance, and any
+  lateness/overtime. Include agents with no appointments as home → home.
+  Use the report's node IDs consistently; do not confuse home IDs, agent IDs,
+  or appointment indices. For comparisons, show each solution's routes.
+- Display the generated route images inline in the chat, not only as download
+  links. If the interface cannot preview SVG, render a PNG preview with an
+  available browser or SVG renderer, preserving the original SVG. Inspect the
+  preview for clipping and embed it in the final answer, labeled by solver and
+  objective. Use the actual report, not a generated illustration. If rendering
+  or inline display is unavailable, explain that limitation and provide links
+  instead of claiming an image was shown.
 - Report the dataset, solver, objective, seed, steps/runs where relevant, and
   measured runtime. Parallel SA runtime is for all runs together, not just the
   winning run; routes and metrics describe the winning solution.
 - Summarize distance in km, lateness and overtime in minutes, and relevant
-  fairness/waiting metrics. Include per-agent routes or artifact links when useful.
+  fairness/waiting metrics alongside the per-agent routes and images.
 - DP is exact for its supported objective within this fixed-time model and
   requires on-time appointments and return home. SA is approximate and can
   return late/overtime routes; check both totals before describing it as feasible.

@@ -63,9 +63,27 @@ uv run python -m scripts.compare data/corsica_nurses.json --steps 50000 --runs 2
 uv run python -m app.optimization.solvers.dp data/corsica_nurses.json --max-states 200000 --output artifacts/interview-dp
 ```
 
-Open `artifacts/interview-dp/optimal_distance_tours.svg` in a browser. Its JSON
-summary is saved beside it. Repeating the DP command replaces those two report
-files; choose another `--output` directory to preserve an earlier run.
+Open `artifacts/interview-dp/dp_shortest_distance_tours.svg` in a browser. Its JSON
+summary is saved beside it. Repeating the same solver and objective replaces
+their two report files; choose another `--output` directory to preserve a run.
+
+### Use your own agents and appointments
+
+The skill also accepts manual data from a conversation, table, CSV, or JSON.
+Provide each agent's home address or coordinates and working hours, plus each
+appointment's location, fixed time, duration, and gain. The agent will ask about
+missing details, resolve addresses with Photon when needed, and obtain driving
+matrices from OSRM before running the existing solvers. No web app is required.
+Address queries go to Photon; coordinates go to OSRM. Manual files and reports
+stay in the ignored `artifacts/` directory unless you choose another location.
+
+```text
+Use $mtspa-routing to optimize the agents and appointments in my attached CSV.
+Ask me for missing information and confirm any ambiguous addresses.
+```
+
+The [manual-data guide](.agents/skills/mtspa-routing/references/manual-data.md)
+includes the input schema and a runnable dataset-preparation recipe.
 
 ## Setup
 
@@ -153,6 +171,51 @@ uv run python -m scripts.compare
 
 The default input is `data/data.json`. Distances are expressed in metres and
 travel times in seconds.
+
+### Minimal solvers
+
+To focus on the algorithms without app callbacks, convergence history, multiple
+objectives, or report exports, run the lite modules from the repository root:
+
+```bash
+uv run python -m app.optimization.solvers.dp_lite
+uv run python -m app.optimization.solvers.sa_lite --steps 50000 --runs 2 --seed 0
+```
+
+Both accept an optional dataset path and print runtime, loss, distance, lateness,
+overtime, and every agent's route. Their CLI uses the default Shortest distance
+objective. DP accepts `--max-states` (default: 8 million). SA retains the changed-tour
+metrics cache and parallel independent runs: tqdm counts steps for a single run
+and completed runs for parallel execution. Use `--no-progress` to hide it. Runtime
+covers all runs, not just the winning one; loading and loss calibration are excluded.
+
+The agent skill uses the full CLIs in `app/optimization/solvers/dp.py` and `sa.py`
+(their `main()` functions) to obtain JSON/SVG reports. `scripts/compare.py` provides
+the comparison CLI. The skill instructs agents to show each agent's route and
+embed report images in chat, using PNG previews when SVG display is unavailable.
+
+### Exported reports
+
+Both solver CLIs write JSON and SVG reports to `artifacts/`, or the directory
+selected with `--output`. Filenames include the solver and selected loss config:
+`dp_maximum_uptime_summary.json`, `dp_maximum_uptime_tours.svg`,
+`sa_fair_distance_summary.json`, and `sa_fair_distance_tours.svg`, for example.
+Different solvers/configs coexist; rerunning the same pair replaces its files.
+The comparison command only prints its table and routes; run a solver CLI to
+generate report files.
+
+Both JSON reports use the same schema: solver/method, objective metadata and
+calibrated weights, loss, runtime, run settings, timing feasibility, complete
+`SolutionMetrics` under `metrics`, and complete `TourMetrics` under each
+`agents[agent_id].metrics`, alongside names and route node IDs. Units are included.
+DP records its state limit and final state count; SA records steps per run, run
+count, and the input seed. SA exports the best solution across all runs, while
+runtime covers all runs. Runtime excludes loading, loss-weight calibration and
+report writing, but includes SA's temperature calibration.
+
+SVG titles identify the actual objective and exact/approximate method. Routes
+are straight geographic connections, not road geometry; lateness and overtime
+remain visible for potentially infeasible SA results.
 
 ## Sample datasets
 

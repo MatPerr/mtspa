@@ -1,6 +1,9 @@
-"""Single-objective dynamic programming without application concerns."""
+"""Single-objective dynamic programming with a minimal console entry point."""
 
+import argparse
 import math
+import time
+from pathlib import Path
 
 from app.optimization.datamodel import NodeId, ProblemData, Solution, Tours
 from app.optimization.loss_calibration import calibrate_loss_weights
@@ -11,6 +14,7 @@ from app.optimization.objectives import (
     MetricName,
     calculate_loss,
 )
+from app.optimization.problem_io import load_data
 from app.optimization.solvers.dp_reconstruction import reconstruct_tours
 
 DEFAULT_MAX_STATES = 8_000_000
@@ -209,3 +213,37 @@ class DynamicProgrammingSolver:
         if solution.metrics.total_overtime != 0:
             raise AssertionError("DP solution returns an agent home late")
         return solution
+
+
+def main() -> None:
+    """Run the minimal solver and print its solution, without file exports."""
+    parser = argparse.ArgumentParser(description="Run minimal exact dynamic programming")
+    parser.add_argument("filepath", nargs="?", type=Path, default=Path("data/data.json"))
+    parser.add_argument("--max-states", type=int, default=DEFAULT_MAX_STATES)
+    arguments = parser.parse_args()
+    if arguments.max_states <= 0:
+        parser.error("--max-states must be positive")
+
+    problem = ProblemData(*load_data(arguments.filepath))
+    solver = DynamicProgrammingSolver(problem, max_states=arguments.max_states)
+    started = time.perf_counter()
+    try:
+        solution = solver.optimize()
+    except StateLimitExceededError as error:
+        parser.exit(1, f"{error}\n")
+    elapsed_seconds = time.perf_counter() - started
+
+    print(f"Objective: {solver.loss_config.name} (exact)")
+    print(f"Elapsed: {elapsed_seconds:.3f} s")
+    print(f"Loss: {solution.loss:.3f}")
+    print(f"Total distance: {solution.metrics.total_distance / 1000:.3f} km")
+    print(f"Total lateness: {solution.metrics.total_lateness} s")
+    print(f"Total overtime: {solution.metrics.total_overtime} s")
+    print(f"Final DP states: {solver.final_state_count:,}")
+    print("Tours (node IDs, including homes):")
+    for agent, tour in zip(problem.agents, solution.tours, strict=True):
+        print(f"  {agent.name}: {' -> '.join(map(str, tour))}")
+
+
+if __name__ == "__main__":
+    main()
