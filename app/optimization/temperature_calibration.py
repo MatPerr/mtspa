@@ -9,7 +9,7 @@ from app.optimization.objectives import MetricName, calculate_loss
 from app.optimization.variation_ops import sample_neighbor
 
 INITIAL_ACCEPTANCE_PROBABILITY = 0.8
-FINAL_ACCEPTANCE_PROBABILITY = 0.001
+FINAL_ACCEPTANCE_PROBABILITY = 1e-12
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +44,8 @@ def estimate_typical_delta(
         if delta != 0:
             delta_magnitudes.append(abs(delta))
 
-    return statistics.median(delta_magnitudes)
+    # Equal-cost swaps (or no available moves) can leave the sample empty.
+    return statistics.median(delta_magnitudes) if delta_magnitudes else 1.0
 
 
 def calibrate_temperature(

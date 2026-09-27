@@ -3,6 +3,8 @@ from bisect import insort_right
 
 from app.optimization.datamodel import AgentId, ProblemData, Tour, Tours
 
+SWAP_PROBABILITY = 0.5
+
 
 def initialize_random_tours(
     problem: ProblemData,
@@ -43,6 +45,58 @@ def give_appointment(
     )
 
 
+def swap_appointments(
+    problem: ProblemData,
+    rng: random.Random,
+    first_tour: Tour,
+    second_tour: Tour,
+) -> None:
+    """Exchange one appointment from each route in place.
+
+    Select the first appointment randomly, then prefer a partner at the same
+    scheduled time. Reinsert both appointments by time and node ID without
+    moving the home endpoints or checking timing feasibility.
+
+    Args:
+        problem: Routing data providing appointment times.
+        rng: Random generator used to choose both appointments.
+        first_tour: First route, with a nonempty interior sorted by time and ID.
+        second_tour: Distinct route with a nonempty interior sorted by time and ID.
+
+    Raises:
+        ValueError: Either route contains no appointment to select.
+    """
+    first_index = rng.randrange(1, len(first_tour) - 1)
+    first_appointment = first_tour[first_index]
+    node_times = problem.node_times
+
+    # Prefer exchanging simultaneous appointments
+    same_time_indices = [
+        index
+        for index in range(1, len(second_tour) - 1)
+        if node_times[second_tour[index]] == node_times[first_appointment]
+    ]
+    second_index = (
+        rng.choice(same_time_indices)
+        if same_time_indices
+        else rng.randrange(1, len(second_tour) - 1)
+    )
+
+    first_tour.pop(first_index)
+    second_appointment = second_tour.pop(second_index)
+    for tour, appointment in (
+        (first_tour, second_appointment),
+        (second_tour, first_appointment),
+    ):
+        insort_right(
+            tour,
+            appointment,
+            lo=1,
+            hi=len(tour) - 1,
+            key=lambda node_id: (node_times[node_id], node_id),
+        )
+
+
 def sample_neighbor(
     problem: ProblemData,
     rng: random.Random,
@@ -60,7 +114,10 @@ def sample_neighbor(
     neighbor = tours.copy()
     donor_tour = tours[donor_id].copy()
     receiver_tour = tours[receiver_id].copy()
-    give_appointment(problem, rng, donor_tour, receiver_tour)
+    if len(receiver_tour) > 2 and rng.random() < SWAP_PROBABILITY:
+        swap_appointments(problem, rng, donor_tour, receiver_tour)
+    else:
+        give_appointment(problem, rng, donor_tour, receiver_tour)
     neighbor[donor_id] = donor_tour
     neighbor[receiver_id] = receiver_tour
 
