@@ -4,6 +4,69 @@ A routing application for assigning fixed-time appointments to multiple agents.
 It includes an exact dynamic-programming solver, a simulated-annealing solver,
 and a map-based web interface.
 
+## Try it with an AI agent
+
+The [MTSPA routing skill](.agents/skills/mtspa-routing/SKILL.md) lets a local
+AI agent run the existing solvers and explain their results. It adds no solver
+code, server, or MCP dependency. The default demo uses the synthetic Ajaccio
+dataset: two nurses and 15 visits.
+
+### Option 1: open the repository in Codex
+
+Prerequisites: [Git](https://git-scm.com/downloads),
+[uv](https://docs.astral.sh/uv/getting-started/installation/), and Codex CLI or
+the IDE extension. No separate Python installation is needed if uv's automatic
+Python downloads are enabled.
+
+```bash
+git clone https://github.com/MatPerr/mtspa_26.git
+cd mtspa_26
+uv sync --locked
+```
+
+Open this folder in Codex, or run `codex` here if using the CLI. Codex discovers
+the repo-local skill in `.agents/skills` automatically
+([official documentation](https://learn.chatgpt.com/docs/build-skills)). Ask:
+
+```text
+Use $mtspa-routing to compare DP and simulated annealing on the Ajaccio sample.
+Show distance, runtime, lateness, and overtime, and generate the DP route SVG.
+```
+
+The demo needs neither the frontend nor an API server, and requires no additional
+API key. Initial setup downloads dependencies; optimization uses the saved
+travel matrices without calling OSRM or Photon. Your AI agent's own account
+and usage requirements still apply.
+
+### Option 2: install just the skill from Codex
+
+Paste this into Codex; it is a prompt, not a shell command:
+
+```text
+$skill-installer install https://github.com/MatPerr/mtspa_26/tree/main/.agents/skills/mtspa-routing
+```
+
+On the next turn, use the same `$mtspa-routing` prompt above. If the skill does
+not appear, restart Codex. The standalone skill contains instructions, not the
+solver package: on first use it will reuse a checkout or clone the repository
+and run `uv sync --locked`. Git, uv, and local shell access are still required.
+Choose either installation method; both are not necessary. For another agent
+with shell access, point it directly at the skill's `SKILL.md` and ask it to
+follow the instructions; automatic discovery depends on the agent.
+
+### Try the same demo without an AI agent
+
+From the cloned repository:
+
+```bash
+uv run python -m scripts.compare data/corsica_nurses.json --steps 50000 --runs 2 --seed 0 --no-progress
+uv run python -m app.optimization.solvers.dp data/corsica_nurses.json --max-states 200000 --output artifacts/interview-dp
+```
+
+Open `artifacts/interview-dp/optimal_distance_tours.svg` in a browser. Its JSON
+summary is saved beside it. Repeating the DP command replaces those two report
+files; choose another `--output` directory to preserve an earlier run.
+
 ## Setup
 
 The backend requires Python 3.14 and uses `uv`. The frontend uses React,
@@ -160,6 +223,7 @@ uv run python -m scripts.generate_samples paris_dinner_deliveries --overwrite
 ## Repository structure
 
 ```text
+.agents/skills/mtspa-routing/  Installable agent instructions (no solver duplication)
 app/
   main.py                  FastAPI endpoints
   schemas.py               HTTP request and response models

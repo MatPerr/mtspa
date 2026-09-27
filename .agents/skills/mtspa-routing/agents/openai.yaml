@@ -1,0 +1,4 @@
+interface:
+  display_name: "MTSPA Route Optimization"
+  short_description: "Run and compare exact and heuristic route solvers"
+  default_prompt: "Use $mtspa-routing to compare DP and simulated annealing on the Ajaccio sample and summarize distance, runtime, lateness, and overtime."
