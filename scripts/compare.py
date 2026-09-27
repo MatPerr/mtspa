@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 
 from app.optimization.datamodel import ProblemData, Solution
-from app.optimization.objectives import LATENESS_PENALTY_PER_SECOND
+from app.optimization.objectives import MetricName
 from app.optimization.problem_io import load_data
 from app.optimization.solvers.dp import DynamicProgrammingSolver
 from app.optimization.solvers.sa import SimulatedAnnealingSolver
@@ -279,7 +279,7 @@ def main() -> None:
     print("  DP: minimize distance subject to on-time appointments and return")
     print(
         "  SA: distance + "
-        f"{LATENESS_PENALTY_PER_SECOND:,} × lateness in seconds"
+        f"{sa_solver.weights[MetricName.TOTAL_LATENESS]:,.3f} × lateness in seconds"
     )
     print("\nComparison")
     print(
