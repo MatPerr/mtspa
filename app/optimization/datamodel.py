@@ -46,6 +46,18 @@ class ProblemData:
     can_return_home: Matrix[bool] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        """Validate the problem and precompute node and feasibility lookups.
+
+        Populate the derived fields in place. ``can_follow[a][b]`` indicates
+        whether an on-time departure from node a can reach appointment b on
+        time. ``can_return_home[agent][node]`` checks the agent's workday end.
+        Distances are in metres and all times and durations are in seconds.
+
+        Raises:
+            ValueError: IDs are not consecutive from zero, a travel matrix has
+                the wrong shape, or an agent does not have exactly one valid
+                home node.
+        """
         node_count = len(self.nodes)
         agent_count = len(self.agents)
         node_ids = [node.id for node in self.nodes]

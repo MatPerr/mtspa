@@ -25,6 +25,12 @@ type ProgressCallback = Callable[[int, int], None]
 
 class StateLimitExceededError(RuntimeError):
     def __init__(self, appointment_id: NodeId, max_states: int) -> None:
+        """Record the appointment and state limit that stopped the search.
+
+        Args:
+            appointment_id: Node ID whose assignment would exceed the limit.
+            max_states: Maximum allowed number of states in one DP layer.
+        """
         self.appointment_id = appointment_id
         self.max_states = max_states
         super().__init__(
@@ -40,6 +46,17 @@ class DynamicProgrammingSolver:
         max_states: int = DEFAULT_MAX_STATES,
         loss_configs: Sequence[LossConfig] = (DEFAULT_LOSS_CONFIG,),
     ) -> None:
+        """Validate DP settings and calibrate the requested objectives together.
+
+        Args:
+            problem: Routing problem with fixed appointment times.
+            max_states: Positive maximum number of states in one DP layer.
+            loss_configs: One or two distinct objectives supported by DP.
+
+        Raises:
+            ValueError: The limit is not positive, the number of configurations
+                is invalid, their IDs repeat, or an objective does not support DP.
+        """
         if max_states <= 0:
             raise ValueError("max_states must be positive")
         if not 1 <= len(loss_configs) <= 2:
@@ -64,6 +81,17 @@ class DynamicProgrammingSolver:
         tours: Tours,
         weights: dict[MetricName, float] | None = None,
     ) -> Solution:
+        """Recalculate complete route metrics and score the supplied tours.
+
+        Args:
+            tours: Routes indexed by agent ID, including home endpoints.
+            weights: Calibrated metric weights, or None for the first
+                configuration supplied to the solver.
+
+        Returns:
+            A solution referencing tours and containing newly computed metrics
+            and loss. Evaluation itself does not enforce DP feasibility.
+        """
         if weights is None:
             weights = self.weights_by_config[0]
         metrics_by_tour = [
@@ -84,6 +112,21 @@ class DynamicProgrammingSolver:
         *,
         progress_callback: ProgressCallback | None = None,
     ) -> Solution:
+        """Return the exact feasible optimum for a single configured objective.
+
+        Args:
+            progress_callback: Optional callback receiving (state_count,
+                max_states). This reports state usage, not fraction completed.
+
+        Returns:
+            Minimum-loss solution satisfying appointment and return-home times.
+
+        Raises:
+            ValueError: More than one objective is configured or no feasible
+                complete assignment exists.
+            StateLimitExceededError: A DP layer would exceed max_states.
+            AssertionError: Reconstructed routes disagree with the DP result.
+        """
         if len(self.loss_configs) != 1:
             raise ValueError(
                 "optimize() requires one config; use "
@@ -98,6 +141,34 @@ class DynamicProgrammingSolver:
         *,
         progress_callback: ProgressCallback | None = None,
     ) -> list[ConfigOptimizationResult]:
+        """Find an exact feasible optimum per objective using shared DP states.
+
+        Process appointments by (scheduled time, node ID). Each state is a
+        tuple of the last visited node for every agent. For each objective,
+        retain the lowest partial loss and a base-agent-count integer encoding
+        the assignment history. Add feasible return-home trips before choosing
+        the winners, then decode each history into complete routes.
+
+        Successful searches update final_state_count with the last layer's
+        size before return-home filtering. elapsed_seconds measures the DP
+        search through final-state selection, excluding route reconstruction.
+
+        Args:
+            progress_callback: Optional callback receiving (state_count,
+                max_states) as state usage reaches reporting thresholds.
+                It does not estimate how much computation remains.
+
+        Returns:
+            One configuration and its minimum-loss feasible solution per
+            requested objective, in configuration order. All appointments are
+            on time and every agent returns home within their workday.
+
+        Raises:
+            ValueError: No feasible assignment or on-time return home exists.
+            StateLimitExceededError: A DP layer would exceed max_states.
+            AssertionError: A reconstructed result is missing, has inconsistent
+                loss, or violates the timing constraints.
+        """
         distances = self.problem.distances
         travel_times = self.problem.travel_times
         node_times = self.problem.node_times
@@ -367,6 +438,7 @@ class DynamicProgrammingSolver:
 
 
 def main() -> None:
+    """Parse CLI options, solve with DP, and write JSON and SVG reports."""
     parser = argparse.ArgumentParser(
         description="Solve the fixed-time routing problem exactly for distance"
     )

@@ -8,6 +8,21 @@ from app.optimization.datamodel import Agent, Matrix, Node
 def load_data(
     filepath: str | Path,
 ) -> tuple[list[Node], list[Agent], Matrix[int], Matrix[int]]:
+    """Load routing data from a JSON or gzip-compressed JSON file.
+
+    Args:
+        filepath: Dataset path. A .gz suffix selects gzip decompression.
+
+    Returns:
+        Nodes and agents sorted by ID, followed by the distance matrix in
+        metres and travel-time matrix in seconds. Matrix order is preserved;
+        metadata such as reference tours is not loaded into the solver data.
+
+    Raises:
+        OSError: The file cannot be read or decompressed.
+        ValueError: JSON is invalid or a field cannot be converted to its type.
+        KeyError: A required dataset field is missing.
+    """
     path = Path(filepath)
     opener = gzip.open(path, "rt", encoding="utf-8") if path.suffix == ".gz" else path.open(encoding="utf-8")
     with opener as file:

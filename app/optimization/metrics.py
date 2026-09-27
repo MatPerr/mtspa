@@ -17,6 +17,20 @@ def compute_std(
     sum_of_squares: int | float,
     count: int,
 ) -> float:
+    """Compute a population standard deviation from aggregate values.
+
+    Args:
+        total: Sum of the observations.
+        sum_of_squares: Sum of the squared observations.
+        count: Positive number of observations.
+
+    Returns:
+        Population standard deviation, clamping negative rounding error in
+        the variance to zero.
+
+    Raises:
+        ValueError: count is not positive.
+    """
     if count <= 0:
         raise ValueError("compute_std requires a positive count")
 
@@ -30,6 +44,22 @@ def calculate_tour_metrics(
     agent_id: AgentId,
     tour: Tour,
 ) -> TourMetrics:
+    """Simulate a route to calculate distance, timing, and earnings metrics.
+
+    Service starts at the later of arrival and the scheduled appointment time,
+    so lateness can propagate to subsequent stops. Waiting measures early
+    arrivals, and overtime measures returning home after the workday ends.
+
+    Args:
+        problem: Routing data with distances in metres and times in seconds.
+        agent_id: Agent whose workday is used for the simulation.
+        tour: Node IDs in visit order, starting and ending at the agent's home.
+            The sequence is evaluated as supplied, without sorting or mutation.
+
+    Returns:
+        Route metrics, including gain per kilometre and per elapsed hour.
+        Elapsed time runs from workday start to the return home.
+    """
     distance = 0
     travel_time = 0
     lateness = 0
@@ -87,6 +117,22 @@ def calculate_tour_metrics(
 def calculate_solution_metrics(
     tour_metrics: Sequence[TourMetrics],
 ) -> SolutionMetrics:
+    """Combine route metrics into totals and population standard deviations.
+
+    Overall gain rates divide total gain by total distance or elapsed time;
+    they are not averages of the individual agents' rates. Agents with empty
+    routes still contribute to the population standard deviations.
+
+    Args:
+        tour_metrics: Nonempty sequence containing one record per agent.
+
+    Returns:
+        Aggregated metrics with distances in metres, times in seconds, and
+        gain rates per kilometre or hour. Rates with zero denominators are zero.
+
+    Raises:
+        ValueError: tour_metrics is empty.
+    """
     if not tour_metrics:
         raise ValueError("At least one tour is required")
 

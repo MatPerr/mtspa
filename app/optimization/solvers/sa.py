@@ -60,7 +60,29 @@ def _optimize_with_progress(
     n_runs: int,
     record_history: bool,
 ) -> ConfigOptimizationResult:
+    """Run one worker's search and send its progress through a shared queue.
+
+    Args:
+        solver: Configured solver owned by this worker.
+        steps: Positive number of annealing iterations.
+        job_id: Index identifying this run in the parent's job list.
+        progress_queue: Queue receiving (job_id, completed_steps) updates.
+        n_runs: Number of runs per objective.
+        record_history: Whether to retain sampled current and best losses.
+
+    Returns:
+        Lowest-loss solution and optional history for this run.
+
+    Raises:
+        ValueError: steps is not positive.
+    """
     def report_progress(completed_steps: int, _: int) -> None:
+        """Attach this worker's job ID to a completed-step progress update.
+
+        Args:
+            completed_steps: Number of iterations completed by this worker.
+            _: Total step count, already known by the parent process.
+        """
         progress_queue.put((job_id, completed_steps))
 
     return _optimize_run(
@@ -107,6 +129,15 @@ class SimulatedAnnealingSolver:
         *,
         weights: dict[MetricName, float] | None = None,
     ) -> None:
+        """Prepare a seeded search with fixed objective weights.
+
+        Args:
+            problem: Routing data shared by all proposals in this search.
+            seed: Seed for move selection and acceptance, or None for a fresh RNG.
+            loss_config: Objective metadata and relative metric importances.
+            weights: Optional weights already calibrated for this problem and
+                objective. Copy them when supplied; otherwise calibrate once.
+        """
         self.problem = problem
         self.rng = random.Random(seed)
         self.loss_config = loss_config
@@ -117,6 +148,12 @@ class SimulatedAnnealingSolver:
         )
 
     def initialize_solution(self) -> Solution:
+        """Create and evaluate a random assignment using the solver's RNG.
+
+        Returns:
+            A solution covering each appointment once, with routes ordered by
+            scheduled time. Lateness and overtime may be nonzero.
+        """
         tours = initialize_random_tours(self.problem, self.rng)
         return self.evaluate_tours(tours)
 
@@ -127,6 +164,22 @@ class SimulatedAnnealingSolver:
         previous: Solution | None = None,
         changed_agent_ids: tuple[AgentId, ...] | None = None,
     ) -> Solution:
+        """Evaluate all routes or reuse cached metrics for unchanged agents.
+
+        Args:
+            tours: Routes indexed by agent ID, including their home endpoints.
+            previous: Previous solution supplying cached route metrics, or None
+                to evaluate every route from scratch.
+            changed_agent_ids: Every changed route's agent ID. Required exactly
+                when previous is supplied; other routes must be unchanged.
+
+        Returns:
+            A solution containing the supplied tours, evaluated metrics, and
+            weighted loss. The tours are referenced without copying or mutation.
+
+        Raises:
+            ValueError: Only one of previous and changed_agent_ids is supplied.
+        """
         if previous is None:
             if changed_agent_ids is not None:
                 raise ValueError(
@@ -164,6 +217,29 @@ class SimulatedAnnealingSolver:
         progress_callback: ProgressCallback | None = None,
         history_callback: HistoryCallback | None = None,
     ) -> Solution:
+        """Search from a fresh random solution using simulated annealing.
+
+        Calibrate temperature around the initial solution, then cool it
+        geometrically. Accept improvements and ties, and accept worsening
+        moves with probability exp(-loss_change / temperature). Retain the best
+        solution even when the current search moves to a worse one.
+
+        Args:
+            steps: Positive number of move attempts, including unavailable moves.
+            show_progress: Whether to display a terminal progress bar.
+            progress_callback: Optional callback receiving (completed_steps,
+                total_steps) as integer percentage boundaries are crossed.
+            history_callback: Optional callback receiving the accepted current
+                loss and best-so-far loss at iteration zero and each percentage
+                boundary, including the final iteration (at most 101 points).
+
+        Returns:
+            Lowest-loss solution encountered. This is a heuristic result;
+            optimality, zero lateness, and zero overtime are not guaranteed.
+
+        Raises:
+            ValueError: steps is not positive.
+        """
         if steps <= 0:
             raise ValueError("steps must be positive")
 
@@ -242,6 +318,24 @@ class SimulatedAnnealingSolver:
         show_progress: bool = True,
         progress_callback: ProgressCallback | None = None,
     ) -> Solution:
+        """Run independent searches for this objective and return the best one.
+
+        Run seeds are derived from the solver's RNG. Multiple runs use worker
+        processes; a single run executes directly.
+
+        Args:
+            steps: Positive number of move attempts per run.
+            n_runs: Positive number of independent searches.
+            show_progress: Whether to display terminal progress.
+            progress_callback: Optional callback receiving completed and total
+                steps aggregated across all runs.
+
+        Returns:
+            Lowest-loss solution among the runs.
+
+        Raises:
+            ValueError: steps or n_runs is not positive.
+        """
         result = optimize_for_loss_configs_parallel(
             self.problem,
             (self.loss_config,),
@@ -267,6 +361,33 @@ def optimize_for_loss_configs_parallel(
     weights_by_config: tuple[dict[MetricName, float], ...] | None = None,
     record_history: bool = False,
 ) -> list[ConfigOptimizationResult]:
+    """Search each objective with independent runs and shared calibration.
+
+    Calibrate objective weights together, then reuse the same sequence of run
+    seeds across objectives. Multiple jobs execute in worker processes; one
+    job executes directly. Results preserve the input configuration order.
+
+    Args:
+        problem: Routing problem shared by all searches.
+        configs: Nonempty tuple of objective definitions.
+        steps: Positive number of move attempts per run.
+        n_runs: Positive number of runs per objective.
+        seed: Seed used to generate run seeds, or None for fresh randomness.
+        show_progress: Whether to display terminal progress.
+        progress_callback: Optional callback receiving completed and total
+            steps across every objective and run.
+        weights_by_config: Optional calibrated weight dictionaries in config
+            order. When supplied, reuse them without running calibration.
+        record_history: Whether to return the winning run's sampled loss history
+            for each objective. Does not alter the search or random-number draws.
+
+    Returns:
+        One configuration and its lowest-loss solution per objective.
+
+    Raises:
+        ValueError: configs is empty, steps or n_runs is not positive, or the
+            supplied weights do not contain one dictionary per configuration.
+    """
     if steps <= 0:
         raise ValueError("steps must be positive")
     if n_runs <= 0:
@@ -360,6 +481,22 @@ def _run_config_jobs_with_progress(
     n_runs: int,
     record_history: bool,
 ) -> None:
+    """Collect worker results while forwarding aggregate progress updates.
+
+    Append results to results_by_config in completion order and propagate
+    worker exceptions to the caller. Progress callbacks run in this process.
+
+    Args:
+        jobs: Nonempty list of (configuration_index, solver) pairs to execute.
+        results_by_config: Destination lists indexed by configuration, mutated
+            as jobs finish.
+        steps: Positive number of iterations assigned to every job.
+        progress_callback: Callback receiving completed and total steps across
+            all jobs, including a final completion update.
+        show_progress: Whether to display the completed-run progress bar.
+        n_runs: Number of independent searches per objective.
+        record_history: Whether to retain each winning run's loss history.
+    """
     completed_by_job = [0] * len(jobs)
     total_steps = steps * len(jobs)
     last_reported_percent = 0
@@ -420,6 +557,7 @@ def _run_config_jobs_with_progress(
 
 
 def main() -> None:
+    """Parse CLI options, run annealing, and print route and metric summaries."""
     parser = argparse.ArgumentParser(
         description="Solve the routing problem with simulated annealing"
     )

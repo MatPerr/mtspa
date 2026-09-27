@@ -25,6 +25,25 @@ def estimate_metric_scales(
     samples: int = DEFAULT_CALIBRATION_SAMPLES,
     seed: int = DEFAULT_CALIBRATION_SEED,
 ) -> dict[MetricName, float]:
+    """Estimate typical per-metric changes using an unconditional random walk.
+
+    Start from a random assignment and advance to every sampled neighbor,
+    including worse ones. For each metric, collect absolute changes greater
+    than 1e-12. These scales describe sampled moves, not the metric totals.
+
+    Args:
+        problem: Routing problem to sample.
+        metrics: Metric names to measure; duplicates are removed.
+        samples: Positive number of move attempts, including unavailable moves.
+        seed: Seed for a local random generator independent of the solver's RNG.
+
+    Returns:
+        Median change magnitude for each metric, or 1.0 if no nonzero changes
+        were observed for that metric.
+
+    Raises:
+        ValueError: samples is not positive.
+    """
     if samples <= 0:
         raise ValueError("samples must be positive")
 

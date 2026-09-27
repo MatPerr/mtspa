@@ -29,6 +29,18 @@ class DynamicProgrammingSolver:
         *,
         weights: dict[MetricName, float] | None = None,
     ) -> None:
+        """Validate the state limit and calibrate one DP-compatible objective.
+
+        Args:
+            problem: Routing problem with fixed appointment times.
+            max_states: Positive maximum number of states in one DP layer.
+            loss_config: Objective metadata and importances supported by DP.
+            weights: Optional weights already calibrated for this problem and
+                objective. Copy them when supplied; otherwise calibrate once.
+
+        Raises:
+            ValueError: max_states is not positive or the objective rejects DP.
+        """
         if max_states <= 0:
             raise ValueError("max_states must be positive")
         if "dp" not in loss_config.supported_solvers:
@@ -47,6 +59,15 @@ class DynamicProgrammingSolver:
         self.final_state_count = 0
 
     def evaluate_tours(self, tours: Tours) -> Solution:
+        """Calculate complete route metrics and the configured objective's loss.
+
+        Args:
+            tours: Routes indexed by agent ID, including home endpoints.
+
+        Returns:
+            A solution referencing tours and containing newly computed metrics
+            and loss. Evaluation itself does not enforce DP feasibility.
+        """
         metrics_by_tour = [
             calculate_tour_metrics(self.problem, agent_id, tour)
             for agent_id, tour in enumerate(tours)
@@ -60,6 +81,25 @@ class DynamicProgrammingSolver:
         )
 
     def optimize(self) -> Solution:
+        """Find the minimum-loss assignment satisfying all timing constraints.
+
+        Process appointments by (scheduled time, node ID). A state stores each
+        agent's last node; its value holds the cheapest partial loss and an
+        assignment history encoded as a base-agent-count integer. Merge paths
+        reaching the same state, add feasible trips home, and decode the best
+        history into routes. Record the last layer's size in final_state_count
+        before return-home filtering.
+
+        Returns:
+            Exact optimum for the configured supported objective, with every
+            appointment assigned once and no lateness or overtime.
+
+        Raises:
+            StateLimitExceededError: A DP layer would exceed max_states.
+            ValueError: No feasible assignment or on-time return home exists.
+            AssertionError: Reconstructed routes disagree with the DP loss or
+                violate the timing constraints.
+        """
         problem = self.problem
         distances = problem.distances
         travel_times = problem.travel_times

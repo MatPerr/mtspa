@@ -10,6 +10,16 @@ def initialize_random_tours(
     problem: ProblemData,
     rng: random.Random,
 ) -> Tours:
+    """Assign every appointment randomly and order each route by scheduled time.
+
+    Args:
+        problem: Routing problem with at least one agent.
+        rng: Random generator used to choose an agent for each appointment.
+
+    Returns:
+        New routes indexed by agent ID, each bounded by that agent's home.
+        Every appointment occurs once; timing feasibility is not enforced.
+    """
     appointments_by_agent = [[] for _ in problem.agents]
     for appointment_id in problem.appointment_ids:
         agent_id = rng.randrange(len(problem.agents))
@@ -30,6 +40,21 @@ def give_appointment(
     donor_tour: Tour,
     receiver_tour: Tour,
 ) -> None:
+    """Move one random appointment between two routes in place.
+
+    The inserted appointment is ordered by scheduled time, then node ID.
+    Both home endpoints are preserved. The move does not check feasibility.
+
+    Args:
+        problem: Routing data providing appointment times.
+        rng: Random generator used to choose the appointment.
+        donor_tour: Route containing at least one appointment to remove.
+        receiver_tour: Distinct route whose interior is already ordered by
+            scheduled time and node ID; it may contain no appointments.
+
+    Raises:
+        ValueError: donor_tour contains no appointment to select.
+    """
     appointment_index = rng.randrange(1, len(donor_tour) - 1)
     appointment = donor_tour.pop(appointment_index)
     node_times = problem.node_times
@@ -102,6 +127,23 @@ def sample_neighbor(
     rng: random.Random,
     tours: Tours,
 ) -> tuple[Tours, tuple[AgentId, AgentId]] | None:
+    """Propose a transfer or swap without modifying the supplied routes.
+
+    Choose two agents and ensure the donor has an appointment when possible.
+    If both routes have appointments, use SWAP_PROBABILITY to choose between
+    a swap and a transfer. Copy the outer list and only the two changed routes.
+
+    Args:
+        problem: Routing data used to maintain appointment order.
+        rng: Random generator used to choose agents and the move.
+        tours: Routes indexed by agent ID, with home endpoints and interiors
+            sorted by scheduled time and node ID.
+
+    Returns:
+        Proposed routes and the two changed agent IDs, or None if there are
+        fewer than two agents or both selected routes are empty. Unchanged
+        route lists are shared with tours. Proposed moves may be infeasible.
+    """
     if len(tours) < 2:
         return None
 

@@ -29,6 +29,20 @@ async def search_addresses(
     query: str,
     limit: int = 5,
 ) -> list[GeocodedLocation]:
+    """Search for addresses using a bounded least-recently-used result cache.
+
+    Args:
+        query: Address text; whitespace is normalized before searching.
+        limit: Positive maximum number of suggestions to return.
+
+    Returns:
+        Address suggestions with coordinates and display labels. Cached entries
+        are keyed by case-insensitive normalized query and requested limit.
+
+    Raises:
+        GeocodingServiceError: The provider cannot be reached or returns an
+            invalid response.
+    """
     normalized_query = " ".join(query.split())
     cache_key = (normalized_query.casefold(), limit)
     if cache_key in _cache:
@@ -47,6 +61,23 @@ async def _request_suggestions(
     query: str,
     limit: int,
 ) -> list[GeocodedLocation]:
+    """Fetch French-language Photon suggestions and discard invalid duplicates.
+
+    Read the provider URL and user agent from PHOTON_BASE_URL and
+    PHOTON_USER_AGENT when set. Request extra candidates to allow filtering.
+
+    Args:
+        query: Normalized address text to send to Photon.
+        limit: Positive maximum number of distinct suggestions to return.
+
+    Returns:
+        Valid suggestions in provider order, deduplicated by label and by
+        coordinates rounded to five decimal places.
+
+    Raises:
+        GeocodingServiceError: An HTTP request fails, JSON cannot be decoded,
+            or the response does not contain a feature list.
+    """
     base_url = os.getenv(
         "PHOTON_BASE_URL",
         DEFAULT_PHOTON_BASE_URL,
@@ -111,6 +142,15 @@ async def _request_suggestions(
 
 
 def _parse_feature(feature: object) -> GeocodedLocation | None:
+    """Convert a Photon feature into a usable address suggestion.
+
+    Args:
+        feature: Untrusted feature object decoded from the provider response.
+
+    Returns:
+        A location with valid latitude, longitude, and a nonempty label, or
+        None if any required feature data is missing or invalid.
+    """
     if not isinstance(feature, dict):
         return None
     geometry = feature.get("geometry")
@@ -140,6 +180,16 @@ def _parse_feature(feature: object) -> GeocodedLocation | None:
 
 
 def _address_label(properties: dict[object, object]) -> str:
+    """Build a display label from available Photon address properties.
+
+    Args:
+        properties: Feature properties containing optional name, street,
+            locality, postcode, and country fields.
+
+    Returns:
+        Comma-separated address parts with case-insensitive duplicates removed,
+        or an empty string when no usable parts exist.
+    """
     name = _text_property(properties, "name")
     street = _text_property(properties, "street")
     house_number = _text_property(properties, "housenumber")
@@ -163,5 +213,14 @@ def _address_label(properties: dict[object, object]) -> str:
 
 
 def _text_property(properties: dict[object, object], key: str) -> str:
+    """Read a trimmed string property, treating missing or non-string data as empty.
+
+    Args:
+        properties: Provider feature properties.
+        key: Property name to retrieve.
+
+    Returns:
+        Trimmed text, or an empty string for a missing or non-string value.
+    """
     value = properties.get(key)
     return value.strip() if isinstance(value, str) else ""

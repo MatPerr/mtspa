@@ -45,6 +45,15 @@ def calculate_loss(
     metrics: SolutionMetrics,
     weights: dict[MetricName, float],
 ) -> float:
+    """Score solution metrics using calibrated objective weights.
+
+    Args:
+        metrics: Aggregated metrics for the entire solution.
+        weights: Calibrated multipliers keyed by metric name.
+
+    Returns:
+        Weighted sum of the configured metrics; lower values are preferred.
+    """
     return sum(
         weight * getattr(metrics, metric.value)
         for metric, weight in weights.items()
@@ -101,4 +110,15 @@ DEFAULT_LOSS_CONFIG = LOSS_CONFIGS["shortest_distance"]
 
 
 def get_loss_configs(config_ids: list[LossConfigId]) -> list[LossConfig]:
+    """Return objective definitions in the requested ID order.
+
+    Args:
+        config_ids: Objective IDs to look up; duplicates are preserved.
+
+    Returns:
+        The corresponding uncalibrated configurations.
+
+    Raises:
+        KeyError: A requested ID is not present in LOSS_CONFIGS.
+    """
     return [LOSS_CONFIGS[config_id] for config_id in config_ids]

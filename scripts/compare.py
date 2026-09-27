@@ -10,6 +10,15 @@ from app.optimization.solvers.sa import SimulatedAnnealingSolver
 
 
 def format_table(rows: list[tuple[str, str, str, str]]) -> str:
+    """Format metric comparisons as a left-aligned text table.
+
+    Args:
+        rows: Four-column rows containing metric label, DP value, SA value,
+            and their displayed difference.
+
+    Returns:
+        A table with a header, separator, and columns sized to fit their content.
+    """
     headers = ("Metric", "Dynamic programming", "Simulated annealing", "SA - DP")
     all_rows = [headers, *rows]
     widths = [
@@ -18,6 +27,14 @@ def format_table(rows: list[tuple[str, str, str, str]]) -> str:
     ]
 
     def format_row(row: tuple[str, str, str, str]) -> str:
+        """Pad one row to the table's precomputed column widths.
+
+        Args:
+            row: Four strings in the same column order as the table header.
+
+        Returns:
+            A single row with columns separated by vertical bars.
+        """
         return " | ".join(
             value.ljust(width)
             for value, width in zip(row, widths, strict=True)
@@ -36,6 +53,19 @@ def comparison_rows(
     dp_elapsed: float,
     sa_elapsed: float,
 ) -> list[tuple[str, str, str, str]]:
+    """Convert two solutions and runtimes into displayable comparison rows.
+
+    Args:
+        dp_solution: Evaluated dynamic-programming solution.
+        sa_solution: Evaluated simulated-annealing solution.
+        dp_elapsed: DP runtime in seconds.
+        sa_elapsed: SA runtime in seconds.
+
+    Returns:
+        Metric, DP, SA, and SA-minus-DP columns, using kilometres and minutes
+        for readability. Includes timing-feasibility flags and a distance gap
+        percentage, which is zero when the DP distance is zero.
+    """
     dp = dp_solution.metrics
     sa = sa_solution.metrics
     distance_gap = sa.total_distance - dp.total_distance
@@ -172,6 +202,16 @@ def print_tours(
     dp_solution: Solution,
     sa_solution: Solution,
 ) -> None:
+    """Print each agent's DP and SA node sequences to the console.
+
+    Args:
+        problem: Routing data supplying agent names and IDs.
+        dp_solution: DP routes in agent order.
+        sa_solution: SA routes in the same agent order.
+
+    Raises:
+        ValueError: The numbers of agents and routes do not match.
+    """
     print("\nTours")
     for agent, dp_tour, sa_tour in zip(
         problem.agents,
@@ -185,6 +225,7 @@ def print_tours(
 
 
 def main() -> None:
+    """Parse comparison options, run both solvers, and print metrics and routes."""
     parser = argparse.ArgumentParser(
         description="Run and compare the DP and simulated-annealing solvers"
     )

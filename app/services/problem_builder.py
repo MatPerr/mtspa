@@ -8,6 +8,16 @@ def input_coordinates(
     agents: Sequence[AgentInput],
     appointments: Sequence[AppointmentInput],
 ) -> list[tuple[float, float]]:
+    """Collect coordinates in the node order expected by build_problem.
+
+    Args:
+        agents: Agent inputs in agent ID order.
+        appointments: Appointment inputs in their display order.
+
+    Returns:
+        (Latitude, longitude) pairs with all agent homes first, followed by
+        appointments. Routing matrix rows and columns must use this order.
+    """
     return [
         (agent.latitude, agent.longitude)
         for agent in agents
@@ -23,6 +33,23 @@ def build_problem(
     distances: Matrix[int],
     travel_times: Matrix[int],
 ) -> ProblemData:
+    """Convert API inputs and matching routing matrices into solver data.
+
+    Assign consecutive agent and node IDs. Home node IDs match agent IDs;
+    appointment node IDs follow all homes in input order.
+
+    Args:
+        agent_inputs: Agents with home coordinates and workday times in seconds.
+        appointment_inputs: Appointments with scheduled times, durations, and gain.
+        distances: Directed distances in metres, ordered by input_coordinates.
+        travel_times: Directed times in seconds, ordered by input_coordinates.
+
+    Returns:
+        Validated problem data with precomputed node and feasibility lookups.
+
+    Raises:
+        ValueError: Matrix dimensions do not match the generated nodes.
+    """
     agents = [
         Agent(
             id=agent_id,

@@ -13,6 +13,24 @@ def save_solution_report(
     elapsed_seconds: float,
     output_directory: str | Path = "artifacts",
 ) -> tuple[Path, Path]:
+    """Write a distance summary and standalone SVG visualization to disk.
+
+    Create the destination directory if needed and overwrite the two fixed
+    report filenames when they already exist.
+
+    Args:
+        problem: Routing data used for names, coordinates, and appointment times.
+        solution: Evaluated solution to report.
+        final_state_count: Number of states in the final DP layer.
+        elapsed_seconds: Solver runtime to display in seconds.
+        output_directory: Directory receiving the JSON and SVG files.
+
+    Returns:
+        Paths to optimal_distance_summary.json and optimal_distance_tours.svg.
+
+    Raises:
+        OSError: The output directory or either report cannot be written.
+    """
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
     summary_path = output_directory / "optimal_distance_summary.json"
@@ -49,6 +67,17 @@ def _summary_data(
     final_state_count: int,
     elapsed_seconds: float,
 ) -> dict[str, object]:
+    """Build the JSON-compatible summary for a minimum-distance report.
+
+    Args:
+        problem: Routing data identifying agents and appointments.
+        solution: Evaluated routes to summarize.
+        final_state_count: Number of states in the final DP layer.
+        elapsed_seconds: Solver runtime in seconds.
+
+    Returns:
+        Overall distance and search statistics plus per-agent route summaries.
+    """
     return {
         "objective": "minimum total distance",
         "total_distance_m": solution.metrics.total_distance,
@@ -72,6 +101,18 @@ def _tour_data(
     tour: Tour,
     metrics: TourMetrics,
 ) -> dict[str, object]:
+    """Build a JSON-compatible summary of one agent's evaluated route.
+
+    Args:
+        problem: Routing data containing the agent's display name.
+        agent_id: Agent associated with the route.
+        tour: Node sequence including the two home endpoints.
+        metrics: Previously evaluated metrics for this route.
+
+    Returns:
+        Agent name, node IDs, appointment count, distance in metres, travel
+        time in seconds, and total gain.
+    """
     appointments = tour[1:-1]
     return {
         "name": problem.agents[agent_id].name,
@@ -90,6 +131,24 @@ def _render_svg(
     final_state_count: int,
     elapsed_seconds: float,
 ) -> str:
+    """Render a geographic route overview and per-agent summaries as SVG.
+
+    Project coordinates onto a simple local plane and draw straight segments
+    between visits; the drawing does not represent road geometry. The problem
+    must have nonzero latitude and longitude extents for the map scaling.
+
+    Args:
+        problem: Routing data with coordinates, agent names, and scheduled times.
+        solution: Complete evaluated assignment to visualize.
+        final_state_count: Number of states in the final DP layer.
+        elapsed_seconds: Solver runtime in seconds.
+
+    Returns:
+        A standalone SVG document with routes colored by agent.
+
+    Raises:
+        ValueError: A home node has no associated agent ID.
+    """
     width = 1600
     height = 980
     map_left = 55
@@ -131,6 +190,14 @@ def _render_svg(
     offset_y = map_top + (map_height - used_height) / 2
 
     def screen(node_id: int) -> tuple[float, float]:
+        """Map one projected node to SVG pixel coordinates.
+
+        Args:
+            node_id: ID of a node already included in the projection.
+
+        Returns:
+            Horizontal and vertical pixel coordinates inside the map panel.
+        """
         x, y = projected[node_id]
         return (
             offset_x + (x - min_x) * scale,
@@ -298,6 +365,14 @@ def _render_svg(
 
 
 def _format_time(seconds: int) -> str:
+    """Format seconds from midnight as HH:MM, discarding remaining seconds.
+
+    Args:
+        seconds: Time offset from midnight; hours may extend beyond 23.
+
+    Returns:
+        Hour and minute fields padded to at least two digits.
+    """
     hours, remainder = divmod(seconds, 3600)
     minutes = remainder // 60
     return f"{hours:02}:{minutes:02}"

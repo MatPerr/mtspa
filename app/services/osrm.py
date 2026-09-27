@@ -17,6 +17,25 @@ class RoutingServiceError(RuntimeError):
 async def get_travel_matrices(
     coordinates: Sequence[tuple[float, float]],
 ) -> tuple[Matrix[int], Matrix[int]]:
+    """Fetch directed driving distances and times for all input pairs.
+
+    Use one OSRM table request for small inputs. Larger inputs are divided
+    into rectangular blocks with at most two requests in flight, then joined
+    without assuming that outbound and return costs are equal.
+
+    Args:
+        coordinates: Nonempty sequence of (latitude, longitude) pairs. Input
+            order defines the row and column order in both returned matrices.
+
+    Returns:
+        Integer distance and travel-time matrices, in metres and seconds.
+
+    Raises:
+        ValueError: coordinates is empty, or response JSON or numeric values
+            cannot be decoded.
+        RoutingServiceError: A request fails or OSRM returns an error,
+            incomplete matrix, or unexpected matrix shape.
+    """
     if not coordinates:
         raise ValueError("At least one coordinate is required")
 
@@ -128,6 +147,22 @@ async def _request_table(
 
 
 def _integer_matrix(values: object, label: str) -> Matrix[int]:
+    """Convert a complete provider matrix to rounded integer costs.
+
+    Args:
+        values: Decoded matrix data, expected to be a list of row lists.
+        label: Cost label, such as distance or duration, used in error messages.
+
+    Returns:
+        A new matrix with every cell converted to float and rounded to an int.
+        Matrix dimensions are checked separately by the caller.
+
+    Raises:
+        RoutingServiceError: The matrix or a row is missing, or a cell is None,
+            indicating an unreachable route.
+        TypeError: A cell cannot be converted to a number.
+        ValueError: A cell contains an invalid numeric value.
+    """
     if not isinstance(values, list):
         raise RoutingServiceError(f"OSRM returned no {label} matrix")
 

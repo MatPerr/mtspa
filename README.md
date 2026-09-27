@@ -28,10 +28,11 @@ In another terminal, start the frontend:
 pnpm --dir frontend dev
 ```
 
-Open <http://localhost:5173>. Click the map to place agents and appointments,
-or find their coordinates by entering an address, then select a solver and
-optimize the tours. Use **Load sample data** to populate the editor from
-`data/data.json` immediately.
+Open <http://localhost:5173>. Choose **Sample data** and select a dataset to load
+it immediately, or choose **Manual data** to add agents and appointments using
+the map or an address. The two modes keep their data separately, so switching
+between them preserves manual entries. The **Nodes** list starts collapsed.
+Select a solver and optimize the tours.
 
 Simulated annealing can optimize one or several loss configs at once. Each
 selected config is run in the same process pool, and the result tabs switch
@@ -39,12 +40,30 @@ the metrics and map between the proposed solutions.
 Dynamic programming supports the Shortest distance and Maximum uptime
 configs, either individually or together in one shared state traversal.
 
-Loss-config terms are dimensionless importance values. Before solving a
-problem, the backend uses a deterministic sample of appointment-transfer
+Simulated annealing tries both appointment transfers and swaps. Swaps prefer
+appointments at the same time, which helps improve fully occupied schedules
+without introducing simultaneous appointments for one agent.
+
+Each `LossConfig` stores metadata and an `importances` dictionary keyed by
+metric name. Before solving a
+problem, the backend uses a deterministic sample of transfer and swap
 neighbors to estimate each metric's typical change. It then converts the
-importances into fixed problem-specific coefficients, keeping total distance
-at weight 1. The same resolved coefficients are reused across every selected
-config and parallel run.
+importances into a plain dictionary of fixed weights, keeping total distance
+at weight 1 for the built-in configs. Selected configs share one calibration
+walk; each config's weights are reused across its parallel runs.
+
+```python
+from app.optimization.loss_calibration import calibrate_loss_weights
+from app.optimization.objectives import LOSS_CONFIGS, calculate_loss
+
+config = LOSS_CONFIGS["shortest_distance"]
+weights = calibrate_loss_weights(problem, config.importances)
+loss = calculate_loss(solution_metrics, weights)
+```
+
+The calibration formula is `weight = importance * distance_scale / metric_scale`.
+Solvers keep `loss_config` for its metadata and `weights` for scoring; no
+separate resolved-config or term objects are needed.
 
 The backend currently requests distance and driving-time matrices from the
 public OSRM server. Set `OSRM_BASE_URL` to select another OSRM instance:
@@ -71,6 +90,72 @@ uv run python -m scripts.compare
 
 The default input is `data/data.json`. Distances are expressed in metres and
 travel times in seconds.
+
+## Sample datasets
+
+| Dataset | Agents | Appointments | Working hours |
+| --- | ---: | ---: | --- |
+| `data/data.json` — Belgium - real estate agents | 7 | 21 | 08:00–20:00 |
+| `data/corsica_nurses.json` — Ajaccio - nurses | 2 | 15 | 08:00–20:00 |
+| `data/paris_deliveries.json` — Paris - trivial lunch deliveries | 8 | 80 | 11:00–15:00 |
+| `data/paris_dinner_deliveries.json.gz` — Paris - difficult dinner deliveries | 30 | 300 | 18:00–23:30 |
+
+The new examples are synthetic: names, visit locations, schedules, and payments
+do not represent real nurses, patients, couriers, or orders. They contain saved
+[OSRM driving matrices](https://project-osrm.org/docs/v5.24.0/api/#table-service),
+using © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright) data.
+The web application requests fresh matrices when solving; the CLI uses the
+saved matrices. Neither models live traffic. The Paris examples model scheduled
+drop-offs, not restaurant pickups, vehicle capacity, or cycling routes.
+
+Ajaccio has 35–55 minute visits from 08:30 to 17:15. Seven pairs of simultaneous
+visits force both nurses into the same neighborhoods, with repeated journeys
+across town. Assigning patients to the nearest nurse's home causes lateness.
+This example remains small enough for both SA and DP.
+
+The original Paris lunch dataset is preserved, with a new label in the selector.
+It has ten waves of eight simultaneous deliveries, every 20 minutes from 11:30
+to 14:30, with 3–5 minute handovers. Both SA and DP support this example.
+
+The difficult dinner dataset spreads 30 homes and 300 stops across urban Paris,
+on both banks of the Seine. Its staggered appointment times are derived from
+real driving times along crossing reference routes, with 2–5 minute handovers.
+It has a verified on-time solution, but assigning each stop to its nearest home
+does not produce a feasible schedule. Use SA for this dataset; 30 agents are
+beyond the practical scope of this DP implementation.
+
+The two harder datasets include feasible `reference_tours` in their metadata
+for validation. These assignments are not supplied to either solver. The dinner
+file is gzip-compressed to keep its 330-by-330 matrices small; the loader and CLI
+read `.json.gz` directly. The web app assembles large matrices from smaller OSRM
+table requests, with at most two requests in flight.
+
+There is no universal maximum number of appointments for DP: timing and agent
+count determine how many states survive. The Paris lunch waves deliberately keep
+this larger example tractable. Every complete wave uses all eight agents,
+so a partial wave has at most `8! × C(8, 4) = 2,822,400` states, below the
+8-million limit. Nine agents with the same fully connected wave structure
+could require `9! × C(9, 4) = 45,722,880` states. The bound concerns one state
+layer, not RAM bytes; DP can hold two layers simultaneously.
+
+A local check of both DP loss configs together on the saved Paris lunch matrices
+took about 8 minutes 48 seconds, with 2,822,400 peak states, 40,320 final
+states, and roughly 2.4 GiB peak process memory. Both results had zero lateness
+and overtime. This is a stress-test sample; runtime depends on your machine.
+
+```bash
+uv run python -m app.optimization.solvers.dp data/corsica_nurses.json
+uv run python -m app.optimization.solvers.dp data/paris_deliveries.json
+uv run python -m app.optimization.solvers.sa data/paris_dinner_deliveries.json.gz
+```
+
+To regenerate either harder dataset while preserving the original Paris lunch
+file (requests public OSRM tables; results can change when routing data changes):
+
+```bash
+uv run python -m scripts.generate_samples corsica_nurses --overwrite
+uv run python -m scripts.generate_samples paris_dinner_deliveries --overwrite
+```
 
 ## Repository structure
 

@@ -21,6 +21,14 @@ class AgentInput(Coordinate):
 
     @model_validator(mode="after")
     def validate_workday(self) -> Self:
+        """Require a workday that ends strictly after it starts.
+
+        Returns:
+            This validated agent input.
+
+        Raises:
+            ValueError: end_time is not later than start_time.
+        """
         if self.end_time <= self.start_time:
             raise ValueError("end_time must be after start_time")
         return self
@@ -74,6 +82,16 @@ class SolveRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_solver_options(self) -> Self:
+        """Check agent counts and objective compatibility for the chosen solver.
+
+        Returns:
+            This request after checking the constraints spanning multiple fields.
+
+        Raises:
+            ValueError: SA has fewer than two agents, objective IDs repeat,
+                DP has more than two objectives, or an objective does not
+                support the selected solver.
+        """
         if self.solver == "sa" and len(self.agents) < 2:
             raise ValueError("Simulated annealing requires at least two agents")
         if len(self.loss_config_ids) != len(set(self.loss_config_ids)):

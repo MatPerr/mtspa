@@ -12,6 +12,24 @@ def build_tour_timeline(
     tour: Tour,
     appointment_id_by_node: dict[NodeId, int],
 ) -> TourTimelineResponse:
+    """Build display segments using the same timing rules as route evaluation.
+
+    Simulate travel, waiting, and service from workday start. Lateness and
+    overtime are overlays, so they may overlap activity without extending it.
+    Preserve zero-duration appointment markers and show availability after
+    an early return home.
+
+    Args:
+        problem: Routing data with all times and durations in seconds.
+        agent_id: Agent whose workday bounds the timeline.
+        tour: Visit sequence starting and ending at the agent's home.
+        appointment_id_by_node: Mapping from internal node IDs to display IDs.
+
+    Returns:
+        Workday bounds, actual return time, and timeline segments. The timeline
+        extends through the later of workday end and return home, even after
+        midnight. All times remain seconds from the original day's midnight.
+    """
     workday_start = problem.agent_start_times[agent_id]
     workday_end = problem.agent_end_times[agent_id]
     current_time = workday_start
@@ -23,6 +41,14 @@ def build_tour_timeline(
         end: int,
         appointment_id: int | None = None,
     ) -> None:
+        """Append a positive interval or a zero-duration appointment marker.
+
+        Args:
+            kind: Timeline segment kind accepted by TimelineSegmentResponse.
+            start: Start time in seconds from midnight.
+            end: End time in seconds from midnight.
+            appointment_id: Associated display ID, or None for unlabelled time.
+        """
         # Keep zero-duration appointment markers, but omit empty time intervals.
         if end > start or kind == "appointment":
             segments.append(TimelineSegmentResponse(

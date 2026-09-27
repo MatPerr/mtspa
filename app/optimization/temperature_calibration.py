@@ -26,6 +26,22 @@ def estimate_typical_delta(
     weights: dict[MetricName, float],
     samples: int,
 ) -> float:
+    """Estimate a typical loss change around one fixed solution.
+
+    Every neighbor is sampled from solution, without advancing a random walk.
+    Improvements and worsenings both contribute their absolute loss changes;
+    equal-cost moves are excluded. Sampling advances rng but preserves solution.
+
+    Args:
+        problem: Routing problem used to evaluate neighbors.
+        rng: Random generator used to propose moves.
+        solution: Fixed starting solution with valid cached metrics and loss.
+        weights: Calibrated weights used to compute solution.loss.
+        samples: Number of move attempts.
+
+    Returns:
+        Median nonzero absolute loss change, or 1.0 when no such change is found.
+    """
     delta_magnitudes = []
 
     for _ in range(samples):
@@ -55,6 +71,24 @@ def calibrate_temperature(
     weights: dict[MetricName, float],
     steps: int,
 ) -> TemperatureCalibration:
+    """Choose endpoint temperatures and a geometric cooling multiplier.
+
+    Use up to 100 move attempts around solution to estimate a typical delta.
+    Each endpoint uses T = -delta / log(p), so a worsening move of that size
+    has the configured acceptance probability. Both endpoints use the same
+    initial estimate; the schedule does not adapt to later neighborhoods.
+
+    Args:
+        problem: Routing problem to sample.
+        rng: Random generator, advanced by calibration sampling.
+        solution: Initial solution with metrics and loss already evaluated.
+        weights: Calibrated weights used for solution and its neighbors.
+        steps: Planned positive number of annealing steps.
+
+    Returns:
+        Initial and final temperatures and the per-step multiplier. With more
+        than one step, the last iteration uses the final temperature.
+    """
     samples = min(100, max(1, steps // 10))
     typical_delta = estimate_typical_delta(
         problem,
