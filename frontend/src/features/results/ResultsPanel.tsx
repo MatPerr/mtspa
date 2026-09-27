@@ -23,6 +23,7 @@ import type {
   TourMetrics,
 } from '../../types'
 import { TourTimeline } from './TourTimeline'
+import { AnnealingConvergenceChart } from './AnnealingConvergenceChart'
 
 type ResultsPanelProps = {
   result: SolveResult
@@ -108,6 +109,13 @@ export function ResultsPanel({
           </Typography>
         )}
       </Box>
+
+      {result.solver === 'sa' && solution.annealing_history && (
+        <AnnealingConvergenceChart
+          key={solution.loss_config_id}
+          history={solution.annealing_history}
+        />
+      )}
 
       {(metrics.total_lateness > 0 || metrics.total_overtime > 0) && (
         <Alert severity="warning">

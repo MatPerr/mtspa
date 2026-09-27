@@ -22,6 +22,7 @@ from app.optimization.solvers.sa import (
     optimize_for_loss_configs_parallel,
 )
 from app.schemas import (
+    AnnealingHistoryResponse,
     Coordinate,
     GeocodeSuggestion,
     ConfigSolutionResponse,
@@ -261,6 +262,7 @@ def _run_solver(
             seed=request.seed,
             show_progress=False,
             progress_callback=progress_callback,
+            record_history=True,
         ),
         None,
     )
@@ -317,6 +319,11 @@ def _solve_response(
                     )
                 ],
                 final_state_count=final_state_count,
+                annealing_history=(
+                    AnnealingHistoryResponse.model_validate(asdict(result.annealing_history))
+                    if result.annealing_history is not None
+                    else None
+                ),
             )
             for result in config_results
         ],

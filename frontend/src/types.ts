@@ -108,6 +108,18 @@ export type TourMetrics = {
   overtime: number
 }
 
+export type AnnealingHistoryPoint = {
+  iteration: number
+  current_loss: number
+  best_loss: number
+}
+
+export type AnnealingHistory = {
+  run_number: number
+  run_count: number
+  points: AnnealingHistoryPoint[]
+}
+
 export type ConfigSolution = {
   loss_config_id: LossConfigId
   loss_config_name: string
@@ -115,6 +127,7 @@ export type ConfigSolution = {
   metrics: SolutionMetrics
   tours: TourResult[]
   final_state_count: number | null
+  annealing_history: AnnealingHistory | null
 }
 
 export type SolveResult = {

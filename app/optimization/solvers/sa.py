@@ -32,13 +32,18 @@ from app.optimization.objectives import (
     calculate_loss,
 )
 from app.optimization.problem_io import load_data
-from app.optimization.results import ConfigOptimizationResult
+from app.optimization.results import (
+    AnnealingHistory,
+    AnnealingHistoryPoint,
+    ConfigOptimizationResult,
+)
 from app.optimization.temperature_calibration import calibrate_temperature
 from app.optimization.variation_ops import initialize_random_tours, sample_neighbor
 from tqdm import tqdm
 
 
 type ProgressCallback = Callable[[int, int], None]
+type HistoryCallback = Callable[[AnnealingHistoryPoint], None]
 
 
 class ProgressQueue(Protocol):
@@ -52,14 +57,44 @@ def _optimize_with_progress(
     steps: int,
     job_id: int,
     progress_queue: ProgressQueue,
-) -> Solution:
+    n_runs: int,
+    record_history: bool,
+) -> ConfigOptimizationResult:
     def report_progress(completed_steps: int, _: int) -> None:
         progress_queue.put((job_id, completed_steps))
 
-    return solver.optimize(
+    return _optimize_run(
+        solver,
         steps,
-        show_progress=False,
+        job_id % n_runs + 1,
+        n_runs,
+        record_history=record_history,
         progress_callback=report_progress,
+    )
+
+
+def _optimize_run(
+    solver: "SimulatedAnnealingSolver",
+    steps: int,
+    run_number: int,
+    run_count: int,
+    *,
+    record_history: bool = False,
+    show_progress: bool = False,
+    progress_callback: ProgressCallback | None = None,
+) -> ConfigOptimizationResult:
+    """Keep the solution and optional convergence history together across workers."""
+    points: list[AnnealingHistoryPoint] = []
+    solution = solver.optimize(
+        steps,
+        show_progress=show_progress,
+        progress_callback=progress_callback,
+        history_callback=points.append if record_history else None,
+    )
+    return ConfigOptimizationResult(
+        solver.loss_config,
+        solution,
+        AnnealingHistory(run_number, run_count, points) if record_history else None,
     )
 
 
@@ -127,12 +162,15 @@ class SimulatedAnnealingSolver:
         *,
         show_progress: bool = True,
         progress_callback: ProgressCallback | None = None,
+        history_callback: HistoryCallback | None = None,
     ) -> Solution:
         if steps <= 0:
             raise ValueError("steps must be positive")
 
         current = self.initialize_solution()
         best = current
+        if history_callback is not None:
+            history_callback(AnnealingHistoryPoint(0, current.loss, best.loss))
 
         temperature_config = calibrate_temperature(
             self.problem,
@@ -163,9 +201,14 @@ class SimulatedAnnealingSolver:
                     previous=current,
                     changed_agent_ids=changed_agent_ids,
                 )
-                delta = candidate.loss - current.loss
+                loss_change = candidate.loss - current.loss
+                if loss_change <= 0:
+                    accept_move = True
+                else:
+                    acceptance_probability = math.exp(-loss_change / temperature)
+                    accept_move = self.rng.random() < acceptance_probability
 
-                if delta <= 0 or self.rng.random() < math.exp(-delta / temperature):
+                if accept_move:
                     current = candidate
                     if current.loss < best.loss:
                         best = current
@@ -180,11 +223,11 @@ class SimulatedAnnealingSolver:
 
             completed_steps = step + 1
             completed_percent = completed_steps * 100 // steps
-            if (
-                progress_callback is not None
-                and completed_percent > last_reported_percent
-            ):
-                progress_callback(completed_steps, steps)
+            if completed_percent > last_reported_percent:
+                if progress_callback is not None:
+                    progress_callback(completed_steps, steps)
+                if history_callback is not None:
+                    history_callback(AnnealingHistoryPoint(completed_steps, current.loss, best.loss))
                 last_reported_percent = completed_percent
 
             temperature *= temperature_config.cooling_rate
@@ -222,6 +265,7 @@ def optimize_for_loss_configs_parallel(
     show_progress: bool = True,
     progress_callback: ProgressCallback | None = None,
     weights_by_config: tuple[dict[MetricName, float], ...] | None = None,
+    record_history: bool = False,
 ) -> list[ConfigOptimizationResult]:
     if steps <= 0:
         raise ValueError("steps must be positive")
@@ -238,7 +282,7 @@ def optimize_for_loss_configs_parallel(
     run_seeds = [master_rng.getrandbits(64) for _ in range(n_runs)]
     jobs = [
         (
-            config_id,
+            config_index,
             SimulatedAnnealingSolver(
                 problem,
                 seed=run_seed,
@@ -246,71 +290,75 @@ def optimize_for_loss_configs_parallel(
                 weights=weights,
             ),
         )
-        for config_id, (config, weights) in enumerate(
+        for config_index, (config, weights) in enumerate(
             zip(configs, weights_by_config, strict=True)
         )
         for run_seed in run_seeds
     ]
 
     if len(jobs) == 1:
-        solution = jobs[0][1].optimize(
+        result = _optimize_run(
+            jobs[0][1],
             steps,
+            1,
+            n_runs,
+            record_history=record_history,
             show_progress=show_progress,
             progress_callback=progress_callback,
         )
-        return [ConfigOptimizationResult(configs[0], solution)]
+        return [result]
 
-    solutions_by_config: list[list[Solution]] = [
+    results_by_config: list[list[ConfigOptimizationResult]] = [
         [] for _ in configs
     ]
 
     if progress_callback is None:
         with ProcessPoolExecutor() as executor:
-            future_config_ids = {
+            config_index_by_future = {
                 executor.submit(
-                    solver.optimize,
+                    _optimize_run,
+                    solver,
                     steps,
-                    show_progress=False,
-                ): config_id
-                for config_id, solver in jobs
+                    job_id % n_runs + 1,
+                    n_runs,
+                    record_history=record_history,
+                ): config_index
+                for job_id, (config_index, solver) in enumerate(jobs)
             }
             for future in tqdm(
-                as_completed(future_config_ids),
+                as_completed(config_index_by_future),
                 total=len(jobs),
                 desc="Simulated annealing runs",
                 unit="run",
                 disable=not show_progress,
             ):
-                config_id = future_config_ids[future]
-                solutions_by_config[config_id].append(future.result())
+                config_index = config_index_by_future[future]
+                results_by_config[config_index].append(future.result())
     else:
         _run_config_jobs_with_progress(
             jobs,
-            solutions_by_config,
+            results_by_config,
             steps,
             progress_callback,
             show_progress,
+            n_runs,
+            record_history,
         )
 
     return [
-        ConfigOptimizationResult(
-            config,
-            min(solutions, key=lambda solution: solution.loss),
-        )
-        for config, solutions in zip(
-            configs,
-            solutions_by_config,
-            strict=True,
-        )
+        min(results, key=lambda result: result.solution.loss)
+        for results in results_by_config
     ]
 
 
 def _run_config_jobs_with_progress(
     jobs: list[tuple[int, SimulatedAnnealingSolver]],
-    solutions_by_config: list[list[Solution]],
+    results_by_config: list[list[ConfigOptimizationResult]],
     steps: int,
     progress_callback: ProgressCallback,
     show_progress: bool,
+    n_runs: int,
+    record_history: bool,
 ) -> None:
     completed_by_job = [0] * len(jobs)
     total_steps = steps * len(jobs)
@@ -319,17 +367,19 @@ def _run_config_jobs_with_progress(
     with Manager() as manager:
         progress_queue = manager.Queue()
         with ProcessPoolExecutor() as executor:
-            future_config_ids = {
+            config_index_by_future = {
                 executor.submit(
                     _optimize_with_progress,
                     solver,
                     steps,
                     job_id,
                     progress_queue,
-                ): config_id
-                for job_id, (config_id, solver) in enumerate(jobs)
+                    n_runs,
+                    record_history,
+                ): config_index
+                for job_id, (config_index, solver) in enumerate(jobs)
             }
-            pending = set(future_config_ids)
+            pending = set(config_index_by_future)
             progress = tqdm(
                 total=len(jobs),
                 desc="Simulated annealing runs",
@@ -345,8 +395,8 @@ def _run_config_jobs_with_progress(
                 )
                 progress.update(len(finished))
                 for future in finished:
-                    config_id = future_config_ids[future]
-                    solutions_by_config[config_id].append(future.result())
+                    config_index = config_index_by_future[future]
+                    results_by_config[config_index].append(future.result())
 
                 while True:
                     try:

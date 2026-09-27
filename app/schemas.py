@@ -118,6 +118,18 @@ class TourResponse(BaseModel):
     timeline: TourTimelineResponse
 
 
+class AnnealingHistoryPointResponse(BaseModel):
+    iteration: int
+    current_loss: float
+    best_loss: float
+
+
+class AnnealingHistoryResponse(BaseModel):
+    run_number: int
+    run_count: int
+    points: list[AnnealingHistoryPointResponse]
+
+
 class ConfigSolutionResponse(BaseModel):
     loss_config_id: LossConfigId
     loss_config_name: str
@@ -125,6 +137,7 @@ class ConfigSolutionResponse(BaseModel):
     metrics: dict[str, int | float]
     tours: list[TourResponse]
     final_state_count: int | None = None
+    annealing_history: AnnealingHistoryResponse | None = None
 
 
 class SolveResponse(BaseModel):
