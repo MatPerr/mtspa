@@ -231,34 +231,49 @@ def calculate_solution_metrics(
     )
 
 
-def evaluate_neighbor_metrics(
+def calculate_metrics(
     problem: ProblemData,
     tours: Tours,
     *,
-    previous_metrics: list[TourMetrics],
-    changed_agent_ids: tuple[AgentId, ...],
+    previous_metrics: list[TourMetrics] | None = None,
+    changed_agent_ids: tuple[AgentId, ...] | None = None,
 ) -> tuple[list[TourMetrics], SolutionMetrics]:
-    """Evaluate a neighbor by recalculating only its changed routes.
+    """Calculate all route metrics or reuse cached metrics for unchanged routes.
 
     Args:
-        problem: Routing data used to simulate the changed routes.
-        tours: Proposed routes indexed by agent ID.
-        previous_metrics: Cached route metrics indexed by agent ID. Records
-            for unchanged routes must still describe the corresponding tours.
-        changed_agent_ids: IDs of every agent whose route has changed.
+        problem: Routing data used to simulate routes.
+        tours: Routes indexed by agent ID, including their home endpoints.
+        previous_metrics: Cached route metrics indexed by agent ID, or None to
+            evaluate every route. Unchanged records must still match their tours.
+        changed_agent_ids: IDs of every changed route, required exactly when
+            previous_metrics is supplied. An empty tuple reuses every record.
 
     Returns:
         A new list of per-route metrics and their combined solution metrics.
         The input tours and previous_metrics list are left unchanged.
-    """
-    metrics_by_tour = previous_metrics.copy()
 
-    for agent_id in changed_agent_ids:
-        metrics_by_tour[agent_id] = calculate_tour_metrics(
-            problem,
-            agent_id,
-            tours[agent_id],
-        )
+    Raises:
+        ValueError: Only one of previous_metrics and changed_agent_ids is
+            supplied, or no tour metrics are available to aggregate.
+    """
+    if previous_metrics is None:
+        if changed_agent_ids is not None:
+            raise ValueError("changed_agent_ids requires previous_metrics")
+        metrics_by_tour = [
+            calculate_tour_metrics(problem, agent_id, tour)
+            for agent_id, tour in enumerate(tours)
+        ]
+    else:
+        if changed_agent_ids is None:
+            raise ValueError("changed_agent_ids is required with previous_metrics")
+        metrics_by_tour = previous_metrics.copy()
+
+        for agent_id in changed_agent_ids:
+            metrics_by_tour[agent_id] = calculate_tour_metrics(
+                problem,
+                agent_id,
+                tours[agent_id],
+            )
 
     combined_metrics = calculate_solution_metrics(metrics_by_tour)
 

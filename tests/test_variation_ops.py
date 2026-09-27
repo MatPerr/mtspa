@@ -57,7 +57,7 @@ class VariationOperatorTests(unittest.TestCase):
         """Check move invariants and compare incremental metrics with full evaluation."""
         original = [tour.copy() for tour in self.tours]
         solver = SimulatedAnnealingSolver(self.problem, seed=0)
-        current = solver.evaluate_tours(self.tours)
+        current = solver.build_solution(self.tours)
         observed_moves = set()
 
         for seed in range(100):
@@ -85,8 +85,8 @@ class VariationOperatorTests(unittest.TestCase):
                 "swap" if len(neighbor[donor]) == len(self.tours[donor]) else "transfer"
             )
             self.assertEqual(
-                solver.evaluate_tours(neighbor, previous=current, changed_agent_ids=changed_agents),
-                solver.evaluate_tours(neighbor),
+                solver.build_solution(neighbor, previous=current, changed_agent_ids=changed_agents),
+                solver.build_solution(neighbor),
             )
 
         self.assertEqual(observed_moves, {"swap", "transfer"})
@@ -124,7 +124,7 @@ class VariationOperatorTests(unittest.TestCase):
     def test_equal_cost_neighbors_allow_temperature_calibration(self):
         """Verify equal-cost proposals still yield positive cooling temperatures."""
         solver = SimulatedAnnealingSolver(self.problem, seed=0)
-        current = solver.evaluate_tours(self.tours)
+        current = solver.build_solution(self.tours)
 
         with patch(
             "app.optimization.temperature_calibration.sample_neighbor",

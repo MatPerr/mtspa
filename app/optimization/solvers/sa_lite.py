@@ -11,11 +11,7 @@ from tqdm import tqdm
 
 from app.optimization.datamodel import AgentId, ProblemData, Solution, Tours
 from app.optimization.loss_calibration import calibrate_loss_weights
-from app.optimization.metrics import (
-    calculate_solution_metrics,
-    calculate_tour_metrics,
-    evaluate_neighbor_metrics,
-)
+from app.optimization.metrics import calculate_metrics
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
     LossConfig,
@@ -62,16 +58,16 @@ class SimulatedAnnealingSolver:
             scheduled time. Lateness and overtime may be nonzero.
         """
         tours = initialize_random_tours(self.problem, self.rng)
-        return self.evaluate_tours(tours)
+        return self.build_solution(tours)
 
-    def evaluate_tours(
+    def build_solution(
         self,
         tours: Tours,
         *,
         previous: Solution | None = None,
         changed_agent_ids: tuple[AgentId, ...] | None = None,
     ) -> Solution:
-        """Evaluate all routes or reuse cached metrics for unchanged agents.
+        """Build a scored solution, reusing cached metrics for unchanged routes.
 
         Args:
             tours: Routes indexed by agent ID, including their home endpoints.
@@ -87,27 +83,12 @@ class SimulatedAnnealingSolver:
         Raises:
             ValueError: Only one of previous and changed_agent_ids is supplied.
         """
-        if previous is None:
-            if changed_agent_ids is not None:
-                raise ValueError(
-                    "changed_agent_ids requires a previous solution"
-                )
-            metrics_by_tour = [
-                calculate_tour_metrics(self.problem, agent_id, tour)
-                for agent_id, tour in enumerate(tours)
-            ]
-            metrics = calculate_solution_metrics(metrics_by_tour)
-        else:
-            if changed_agent_ids is None:
-                raise ValueError(
-                    "changed_agent_ids is required with a previous solution"
-                )
-            metrics_by_tour, metrics = evaluate_neighbor_metrics(
-                self.problem,
-                tours,
-                previous_metrics=previous.tour_metrics,
-                changed_agent_ids=changed_agent_ids,
-            )
+        metrics_by_tour, metrics = calculate_metrics(
+            self.problem,
+            tours,
+            previous_metrics=previous.tour_metrics if previous is not None else None,
+            changed_agent_ids=changed_agent_ids,
+        )
 
         return Solution(
             tours=tours,
@@ -160,7 +141,7 @@ class SimulatedAnnealingSolver:
                 continue
 
             neighbor_tours, changed_agent_ids = neighbor
-            candidate = self.evaluate_tours(
+            candidate = self.build_solution(
                 neighbor_tours,
                 previous=current,
                 changed_agent_ids=changed_agent_ids,

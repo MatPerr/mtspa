@@ -91,7 +91,7 @@ class LossCalibrationTests(unittest.TestCase):
                         supplied = original.copy()
                         solver = solver_type(self.problem, weights=supplied)
                         supplied[MetricName.TOTAL_WAITING_TIME] = 999
-                        solution = solver.evaluate_tours(self.tours)
+                        solution = solver.build_solution(self.tours)
                         self.assertEqual(solver.weights, original)
                         self.assertEqual(solution.loss, calculate_loss(solution.metrics, original))
 

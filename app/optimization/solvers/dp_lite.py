@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.optimization.datamodel import NodeId, ProblemData, Solution, Tours
 from app.optimization.loss_calibration import calibrate_loss_weights
-from app.optimization.metrics import calculate_solution_metrics, calculate_tour_metrics
+from app.optimization.metrics import calculate_metrics
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
     LossConfig,
@@ -62,8 +62,8 @@ class DynamicProgrammingSolver:
         )
         self.final_state_count = 0
 
-    def evaluate_tours(self, tours: Tours) -> Solution:
-        """Calculate complete route metrics and the configured objective's loss.
+    def build_solution(self, tours: Tours) -> Solution:
+        """Build a solution from tours, complete metrics, and weighted loss.
 
         Args:
             tours: Routes indexed by agent ID, including home endpoints.
@@ -72,11 +72,7 @@ class DynamicProgrammingSolver:
             A solution referencing tours and containing newly computed metrics
             and loss. Evaluation itself does not enforce DP feasibility.
         """
-        metrics_by_tour = [
-            calculate_tour_metrics(self.problem, agent_id, tour)
-            for agent_id, tour in enumerate(tours)
-        ]
-        metrics = calculate_solution_metrics(metrics_by_tour)
+        metrics_by_tour, metrics = calculate_metrics(self.problem, tours)
         return Solution(
             tours=tours,
             tour_metrics=metrics_by_tour,
@@ -205,7 +201,7 @@ class DynamicProgrammingSolver:
         best_loss, assignment_code = best_record
         tours = reconstruct_tours(problem, appointment_ids, assignment_code)
         self.final_state_count = len(states)
-        solution = self.evaluate_tours(tours)
+        solution = self.build_solution(tours)
         if not math.isclose(solution.loss, best_loss):
             raise AssertionError("Reconstructed tours do not match the DP loss")
         if solution.metrics.total_lateness != 0:

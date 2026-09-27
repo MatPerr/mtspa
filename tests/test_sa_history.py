@@ -62,7 +62,7 @@ class AnnealingHistoryTests(unittest.TestCase):
                 points = []
                 with (
                     patch.object(solver, "initialize_solution", return_value=initial),
-                    patch.object(solver, "evaluate_tours", side_effect=[
+                    patch.object(solver, "build_solution", side_effect=[
                         replace(initial, loss=loss) for loss in (20, 8, 12)
                     ]),
                     patch.object(solver.rng, "random", return_value=draw),

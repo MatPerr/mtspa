@@ -4,7 +4,7 @@ import statistics
 from dataclasses import dataclass
 
 from app.optimization.datamodel import ProblemData, Solution
-from app.optimization.metrics import evaluate_neighbor_metrics
+from app.optimization.metrics import calculate_metrics
 from app.optimization.objectives import MetricName, calculate_loss
 from app.optimization.variation_ops import sample_neighbor
 
@@ -50,7 +50,7 @@ def estimate_typical_delta(
             continue
 
         neighbor_tours, changed_agent_ids = neighbor
-        _, metrics = evaluate_neighbor_metrics(
+        _, metrics = calculate_metrics(
             problem,
             neighbor_tours,
             previous_metrics=solution.tour_metrics,

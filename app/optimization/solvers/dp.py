@@ -6,7 +6,7 @@ from pathlib import Path
 
 from app.optimization.datamodel import NodeId, ProblemData, Solution, Tours
 from app.optimization.loss_calibration import calibrate_loss_weights_for_configs
-from app.optimization.metrics import calculate_solution_metrics, calculate_tour_metrics
+from app.optimization.metrics import calculate_metrics
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
     LOSS_CONFIGS,
@@ -76,12 +76,12 @@ class DynamicProgrammingSolver:
         self.final_state_count = 0
         self.elapsed_seconds = 0.0
 
-    def evaluate_tours(
+    def build_solution(
         self,
         tours: Tours,
         weights: dict[MetricName, float] | None = None,
     ) -> Solution:
-        """Recalculate complete route metrics and score the supplied tours.
+        """Build a solution from tours, complete metrics, and weighted loss.
 
         Args:
             tours: Routes indexed by agent ID, including home endpoints.
@@ -94,11 +94,7 @@ class DynamicProgrammingSolver:
         """
         if weights is None:
             weights = self.weights_by_config[0]
-        metrics_by_tour = [
-            calculate_tour_metrics(self.problem, agent_id, tour)
-            for agent_id, tour in enumerate(tours)
-        ]
-        metrics = calculate_solution_metrics(metrics_by_tour)
+        metrics_by_tour, metrics = calculate_metrics(self.problem, tours)
 
         return Solution(
             tours=tours,
@@ -421,7 +417,7 @@ class DynamicProgrammingSolver:
                 raise AssertionError("DP config result is missing")
             best_loss, best_code = best_record
             tours = reconstruct_tours(self.problem, appointment_ids, best_code)
-            solution = self.evaluate_tours(tours, weights)
+            solution = self.build_solution(tours, weights)
 
             if not math.isclose(solution.loss, best_loss):
                 raise AssertionError(

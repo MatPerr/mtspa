@@ -3,11 +3,7 @@ import statistics
 from collections.abc import Iterable
 
 from app.optimization.datamodel import ProblemData
-from app.optimization.metrics import (
-    calculate_solution_metrics,
-    calculate_tour_metrics,
-    evaluate_neighbor_metrics,
-)
+from app.optimization.metrics import calculate_metrics
 from app.optimization.objectives import LossConfig, MetricName
 from app.optimization.variation_ops import (
     initialize_random_tours,
@@ -51,11 +47,7 @@ def estimate_metric_scales(
     deltas = {metric: [] for metric in selected_metrics}
     rng = random.Random(seed)
     tours = initialize_random_tours(problem, rng)
-    metrics_by_tour = [
-        calculate_tour_metrics(problem, agent_id, tour)
-        for agent_id, tour in enumerate(tours)
-    ]
-    solution_metrics = calculate_solution_metrics(metrics_by_tour)
+    metrics_by_tour, solution_metrics = calculate_metrics(problem, tours)
 
     for _ in range(samples):
         neighbor = sample_neighbor(problem, rng, tours)
@@ -63,7 +55,7 @@ def estimate_metric_scales(
             continue
 
         neighbor_tours, changed_agent_ids = neighbor
-        neighbor_metrics_by_tour, neighbor_metrics = evaluate_neighbor_metrics(
+        neighbor_metrics_by_tour, neighbor_metrics = calculate_metrics(
             problem,
             neighbor_tours,
             previous_metrics=metrics_by_tour,
