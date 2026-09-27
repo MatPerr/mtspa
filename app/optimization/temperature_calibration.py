@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from app.optimization.datamodel import ProblemData, Solution
 from app.optimization.metrics import evaluate_neighbor_metrics
-from app.optimization.objectives import ResolvedLossConfig, calculate_loss
+from app.optimization.objectives import MetricName, calculate_loss
 from app.optimization.variation_ops import sample_neighbor
 
 INITIAL_ACCEPTANCE_PROBABILITY = 0.8
@@ -23,7 +23,7 @@ def estimate_typical_delta(
     problem: ProblemData,
     rng: random.Random,
     solution: Solution,
-    loss_config: ResolvedLossConfig,
+    weights: dict[MetricName, float],
     samples: int,
 ) -> float:
     delta_magnitudes = []
@@ -40,7 +40,7 @@ def estimate_typical_delta(
             previous_metrics=solution.tour_metrics,
             changed_agent_ids=changed_agent_ids,
         )
-        delta = calculate_loss(metrics, loss_config) - solution.loss
+        delta = calculate_loss(metrics, weights) - solution.loss
         if delta != 0:
             delta_magnitudes.append(abs(delta))
 
@@ -51,7 +51,7 @@ def calibrate_temperature(
     problem: ProblemData,
     rng: random.Random,
     solution: Solution,
-    loss_config: ResolvedLossConfig,
+    weights: dict[MetricName, float],
     steps: int,
 ) -> TemperatureCalibration:
     samples = min(100, max(1, steps // 10))
@@ -59,7 +59,7 @@ def calibrate_temperature(
         problem,
         rng,
         solution,
-        loss_config,
+        weights,
         samples,
     )
     initial_temperature = (

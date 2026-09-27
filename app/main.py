@@ -66,10 +66,10 @@ def loss_configs() -> list[LossConfigResponse]:
             supported_solvers=list(config.supported_solvers),
             terms=[
                 LossTermResponse(
-                    metric=term.metric.value,
-                    importance=term.importance,
+                    metric=metric.value,
+                    importance=importance,
                 )
-                for term in config.terms
+                for metric, importance in config.importances.items()
             ],
         )
         for config in LOSS_CONFIGS.values()

@@ -16,8 +16,8 @@ from typing import Protocol
 
 from app.optimization.datamodel import AgentId, ProblemData, Solution, Tours
 from app.optimization.loss_calibration import (
-    resolve_loss_config,
-    resolve_loss_configs,
+    calibrate_loss_weights,
+    calibrate_loss_weights_for_configs,
 )
 from app.optimization.metrics import (
     calculate_solution_metrics,
@@ -27,7 +27,8 @@ from app.optimization.metrics import (
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
     LOSS_CONFIGS,
-    AnyLossConfig,
+    LossConfig,
+    MetricName,
     calculate_loss,
 )
 from app.optimization.problem_io import load_data
@@ -67,11 +68,18 @@ class SimulatedAnnealingSolver:
         self,
         problem: ProblemData,
         seed: int | None = None,
-        loss_config: AnyLossConfig = DEFAULT_LOSS_CONFIG,
+        loss_config: LossConfig = DEFAULT_LOSS_CONFIG,
+        *,
+        weights: dict[MetricName, float] | None = None,
     ) -> None:
         self.problem = problem
         self.rng = random.Random(seed)
-        self.loss_config = resolve_loss_config(problem, loss_config)
+        self.loss_config = loss_config
+        self.weights = (
+            calibrate_loss_weights(problem, loss_config.importances)
+            if weights is None
+            else weights.copy()
+        )
 
     def initialize_solution(self) -> Solution:
         tours = initialize_random_tours(self.problem, self.rng)
@@ -110,7 +118,7 @@ class SimulatedAnnealingSolver:
             tours=tours,
             tour_metrics=metrics_by_tour,
             metrics=metrics,
-            loss=calculate_loss(metrics, self.loss_config),
+            loss=calculate_loss(metrics, self.weights),
         )
 
     def optimize(
@@ -130,7 +138,7 @@ class SimulatedAnnealingSolver:
             self.problem,
             self.rng,
             current,
-            self.loss_config,
+            self.weights,
             steps,
         )
         temperature = temperature_config.initial_temperature
@@ -199,19 +207,21 @@ class SimulatedAnnealingSolver:
             seed=self.rng.getrandbits(64),
             show_progress=show_progress,
             progress_callback=progress_callback,
+            weights_by_config=(self.weights,),
         )
         return result[0].solution
 
 
 def optimize_for_loss_configs_parallel(
     problem: ProblemData,
-    configs: tuple[AnyLossConfig, ...],
+    configs: tuple[LossConfig, ...],
     steps: int,
     n_runs: int,
     *,
     seed: int | None = None,
     show_progress: bool = True,
     progress_callback: ProgressCallback | None = None,
+    weights_by_config: tuple[dict[MetricName, float], ...] | None = None,
 ) -> list[ConfigOptimizationResult]:
     if steps <= 0:
         raise ValueError("steps must be positive")
@@ -220,7 +230,10 @@ def optimize_for_loss_configs_parallel(
     if not configs:
         raise ValueError("At least one loss config is required")
 
-    resolved_configs = resolve_loss_configs(problem, configs)
+    if weights_by_config is None:
+        weights_by_config = calibrate_loss_weights_for_configs(problem, configs)
+    elif len(weights_by_config) != len(configs):
+        raise ValueError("Provide one weight dictionary per loss config")
     master_rng = random.Random(seed)
     run_seeds = [master_rng.getrandbits(64) for _ in range(n_runs)]
     jobs = [
@@ -230,9 +243,12 @@ def optimize_for_loss_configs_parallel(
                 problem,
                 seed=run_seed,
                 loss_config=config,
+                weights=weights,
             ),
         )
-        for config_id, config in enumerate(resolved_configs)
+        for config_id, (config, weights) in enumerate(
+            zip(configs, weights_by_config, strict=True)
+        )
         for run_seed in run_seeds
     ]
 
@@ -242,10 +258,10 @@ def optimize_for_loss_configs_parallel(
             show_progress=show_progress,
             progress_callback=progress_callback,
         )
-        return [ConfigOptimizationResult(resolved_configs[0], solution)]
+        return [ConfigOptimizationResult(configs[0], solution)]
 
     solutions_by_config: list[list[Solution]] = [
-        [] for _ in resolved_configs
+        [] for _ in configs
     ]
 
     if progress_callback is None:
@@ -282,7 +298,7 @@ def optimize_for_loss_configs_parallel(
             min(solutions, key=lambda solution: solution.loss),
         )
         for config, solutions in zip(
-            resolved_configs,
+            configs,
             solutions_by_config,
             strict=True,
         )

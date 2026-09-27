@@ -33,45 +33,21 @@ class MetricName(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class LossTerm:
-    metric: MetricName
-    importance: float
-
-
-@dataclass(frozen=True, slots=True)
 class LossConfig:
     id: LossConfigId
     name: str
     description: str
     supported_solvers: tuple[SolverName, ...]
-    terms: tuple[LossTerm, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedLossTerm:
-    metric: MetricName
-    weight: float
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedLossConfig:
-    id: LossConfigId
-    name: str
-    description: str
-    supported_solvers: tuple[SolverName, ...]
-    terms: tuple[ResolvedLossTerm, ...]
-
-
-type AnyLossConfig = LossConfig | ResolvedLossConfig
+    importances: dict[MetricName, float]
 
 
 def calculate_loss(
     metrics: SolutionMetrics,
-    config: ResolvedLossConfig,
+    weights: dict[MetricName, float],
 ) -> float:
     return sum(
-        term.weight * getattr(metrics, term.metric.value)
-        for term in config.terms
+        weight * getattr(metrics, metric.value)
+        for metric, weight in weights.items()
     )
 
 
@@ -81,43 +57,43 @@ LOSS_CONFIGS: dict[LossConfigId, LossConfig] = {
         name="Shortest distance",
         description="Prioritize total distance while strongly penalizing lateness.",
         supported_solvers=("sa", "dp"),
-        terms=(
-            LossTerm(MetricName.TOTAL_DISTANCE, 1),
-            LossTerm(MetricName.TOTAL_LATENESS, 11.7),
-        ),
+        importances={
+            MetricName.TOTAL_DISTANCE: 1,
+            MetricName.TOTAL_LATENESS: 11.7,
+        },
     ),
     "fair_hourly_pay": LossConfig(
         id="fair_hourly_pay",
         name="Fair hourly pay",
         description="Reduce differences in gain per hour between agents.",
         supported_solvers=("sa",),
-        terms=(
-            LossTerm(MetricName.TOTAL_DISTANCE, 1),
-            LossTerm(MetricName.TOTAL_LATENESS, 11.7),
-            LossTerm(MetricName.GAIN_PER_HOUR_STD, 0.1624),
-        ),
+        importances={
+            MetricName.TOTAL_DISTANCE: 1,
+            MetricName.TOTAL_LATENESS: 11.7,
+            MetricName.GAIN_PER_HOUR_STD: 0.1624,
+        },
     ),
     "fair_distance": LossConfig(
         id="fair_distance",
         name="Fair distance",
         description="Distribute travelled distance more evenly between agents.",
         supported_solvers=("sa",),
-        terms=(
-            LossTerm(MetricName.TOTAL_DISTANCE, 1),
-            LossTerm(MetricName.TOTAL_LATENESS, 11.7),
-            LossTerm(MetricName.DISTANCE_STD, 1.262),
-        ),
+        importances={
+            MetricName.TOTAL_DISTANCE: 1,
+            MetricName.TOTAL_LATENESS: 11.7,
+            MetricName.DISTANCE_STD: 1.262,
+        },
     ),
     "maximum_uptime": LossConfig(
         id="maximum_uptime",
         name="Maximum uptime",
         description="Reduce total waiting time between appointments.",
         supported_solvers=("sa", "dp"),
-        terms=(
-            LossTerm(MetricName.TOTAL_DISTANCE, 1),
-            LossTerm(MetricName.TOTAL_LATENESS, 11.7),
-            LossTerm(MetricName.TOTAL_WAITING_TIME, 0.5343),
-        ),
+        importances={
+            MetricName.TOTAL_DISTANCE: 1,
+            MetricName.TOTAL_LATENESS: 11.7,
+            MetricName.TOTAL_WAITING_TIME: 0.5343,
+        },
     ),
 }
 

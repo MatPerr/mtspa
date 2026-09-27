@@ -1,7 +1,6 @@
 import random
 import statistics
 from collections.abc import Iterable
-from typing import cast
 
 from app.optimization.datamodel import ProblemData
 from app.optimization.metrics import (
@@ -9,13 +8,7 @@ from app.optimization.metrics import (
     calculate_tour_metrics,
     evaluate_neighbor_metrics,
 )
-from app.optimization.objectives import (
-    AnyLossConfig,
-    LossConfig,
-    MetricName,
-    ResolvedLossConfig,
-    ResolvedLossTerm,
-)
+from app.optimization.objectives import LossConfig, MetricName
 from app.optimization.variation_ops import (
     initialize_random_tours,
     sample_neighbor,
@@ -80,56 +73,63 @@ def estimate_metric_scales(
     }
 
 
-def resolve_loss_configs(
+def calibrate_loss_weights(
     problem: ProblemData,
-    configs: Iterable[AnyLossConfig],
-) -> tuple[ResolvedLossConfig, ...]:
-    selected_configs = tuple(configs)
-    unresolved_configs = tuple(
-        config
-        for config in selected_configs
-        if isinstance(config, LossConfig)
-    )
-    if not unresolved_configs:
-        return cast(tuple[ResolvedLossConfig, ...], selected_configs)
+    importances: dict[MetricName, float],
+    *,
+    scales: dict[MetricName, float] | None = None,
+) -> dict[MetricName, float]:
+    """Convert relative metric importances into fixed scoring weights.
 
-    metric_names = {
-        MetricName.TOTAL_DISTANCE,
-        *(
-            term.metric
-            for config in unresolved_configs
-            for term in config.terms
-        ),
-    }
-    scales = estimate_metric_scales(problem, metric_names)
+    Each weight is importance * distance_scale / metric_scale, making typical
+    changes comparable to distance. Neither importances nor scales is mutated.
+
+    Args:
+        problem: Routing problem used when metric scales need to be estimated.
+        importances: Chosen relative priorities keyed by metric name.
+        scales: Optional positive metric scales from a shared calibration walk.
+            Must include distance and every metric in importances. When omitted,
+            estimate them from problem.
+
+    Returns:
+        A new dictionary of numeric weights for use throughout optimization.
+    """
+    if scales is None:
+        metric_names = set(importances)
+        metric_names.add(MetricName.TOTAL_DISTANCE)
+        scales = estimate_metric_scales(problem, metric_names)
     distance_scale = scales[MetricName.TOTAL_DISTANCE]
 
-    return tuple(
-        config
-        if isinstance(config, ResolvedLossConfig)
-        else ResolvedLossConfig(
-            id=config.id,
-            name=config.name,
-            description=config.description,
-            supported_solvers=config.supported_solvers,
-            terms=tuple(
-                ResolvedLossTerm(
-                    metric=term.metric,
-                    weight=(
-                        term.importance
-                        * distance_scale
-                        / scales[term.metric]
-                    ),
-                )
-                for term in config.terms
-            ),
-        )
-        for config in selected_configs
-    )
+    weights = {}
+    for metric, importance in importances.items():
+        weights[metric] = importance * distance_scale / scales[metric]
+    return weights
 
 
-def resolve_loss_config(
+def calibrate_loss_weights_for_configs(
     problem: ProblemData,
-    config: AnyLossConfig,
-) -> ResolvedLossConfig:
-    return resolve_loss_configs(problem, (config,))[0]
+    configs: Iterable[LossConfig],
+) -> tuple[dict[MetricName, float], ...]:
+    """Calibrate several objectives using a single shared sampling walk.
+
+    Args:
+        problem: Routing problem used to estimate metric scales.
+        configs: Objective definitions whose importance dictionaries are preserved.
+
+    Returns:
+        One weight dictionary per configuration, in input order. Empty input
+        produces an empty tuple without sampling.
+    """
+    configs = tuple(configs)
+    if not configs:
+        return ()
+
+    metric_names = {MetricName.TOTAL_DISTANCE}
+    for config in configs:
+        metric_names.update(config.importances)
+    scales = estimate_metric_scales(problem, metric_names)
+
+    return tuple(
+        calibrate_loss_weights(problem, config.importances, scales=scales)
+        for config in configs
+    )

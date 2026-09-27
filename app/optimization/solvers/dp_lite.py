@@ -3,11 +3,11 @@
 import math
 
 from app.optimization.datamodel import NodeId, ProblemData, Solution, Tours
-from app.optimization.loss_calibration import resolve_loss_config
+from app.optimization.loss_calibration import calibrate_loss_weights
 from app.optimization.metrics import calculate_solution_metrics, calculate_tour_metrics
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
-    AnyLossConfig,
+    LossConfig,
     MetricName,
     calculate_loss,
 )
@@ -24,7 +24,9 @@ class DynamicProgrammingSolver:
         self,
         problem: ProblemData,
         max_states: int = DEFAULT_MAX_STATES,
-        loss_config: AnyLossConfig = DEFAULT_LOSS_CONFIG,
+        loss_config: LossConfig = DEFAULT_LOSS_CONFIG,
+        *,
+        weights: dict[MetricName, float] | None = None,
     ) -> None:
         if max_states <= 0:
             raise ValueError("max_states must be positive")
@@ -35,7 +37,12 @@ class DynamicProgrammingSolver:
 
         self.problem = problem
         self.max_states = max_states
-        self.loss_config = resolve_loss_config(problem, loss_config)
+        self.loss_config = loss_config
+        self.weights = (
+            calibrate_loss_weights(problem, loss_config.importances)
+            if weights is None
+            else weights.copy()
+        )
         self.final_state_count = 0
 
     def evaluate_tours(self, tours: Tours) -> Solution:
@@ -48,7 +55,7 @@ class DynamicProgrammingSolver:
             tours=tours,
             tour_metrics=metrics_by_tour,
             metrics=metrics,
-            loss=calculate_loss(metrics, self.loss_config),
+            loss=calculate_loss(metrics, self.weights),
         )
 
     def optimize(self) -> Solution:
@@ -67,12 +74,8 @@ class DynamicProgrammingSolver:
             problem.appointment_ids,
             key=lambda node_id: (node_times[node_id], node_id),
         )
-        weights = {
-            term.metric: term.weight
-            for term in self.loss_config.terms
-        }
-        distance_weight = weights.get(MetricName.TOTAL_DISTANCE, 0)
-        waiting_time_weight = weights.get(MetricName.TOTAL_WAITING_TIME, 0)
+        distance_weight = self.weights.get(MetricName.TOTAL_DISTANCE, 0)
+        waiting_time_weight = self.weights.get(MetricName.TOTAL_WAITING_TIME, 0)
 
         initial_state = tuple(agent_home_nodes)
         states: dict[tuple[NodeId, ...], tuple[float, int]] = {

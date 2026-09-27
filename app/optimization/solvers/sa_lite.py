@@ -5,7 +5,7 @@ import random
 from concurrent.futures import ProcessPoolExecutor
 
 from app.optimization.datamodel import AgentId, ProblemData, Solution, Tours
-from app.optimization.loss_calibration import resolve_loss_config
+from app.optimization.loss_calibration import calibrate_loss_weights
 from app.optimization.metrics import (
     calculate_solution_metrics,
     calculate_tour_metrics,
@@ -13,7 +13,8 @@ from app.optimization.metrics import (
 )
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
-    AnyLossConfig,
+    LossConfig,
+    MetricName,
     calculate_loss,
 )
 from app.optimization.temperature_calibration import calibrate_temperature
@@ -25,11 +26,18 @@ class SimulatedAnnealingSolver:
         self,
         problem: ProblemData,
         seed: int | None = None,
-        loss_config: AnyLossConfig = DEFAULT_LOSS_CONFIG,
+        loss_config: LossConfig = DEFAULT_LOSS_CONFIG,
+        *,
+        weights: dict[MetricName, float] | None = None,
     ) -> None:
         self.problem = problem
         self.rng = random.Random(seed)
-        self.loss_config = resolve_loss_config(problem, loss_config)
+        self.loss_config = loss_config
+        self.weights = (
+            calibrate_loss_weights(problem, loss_config.importances)
+            if weights is None
+            else weights.copy()
+        )
 
     def initialize_solution(self) -> Solution:
         tours = initialize_random_tours(self.problem, self.rng)
@@ -68,7 +76,7 @@ class SimulatedAnnealingSolver:
             tours=tours,
             tour_metrics=metrics_by_tour,
             metrics=metrics,
-            loss=calculate_loss(metrics, self.loss_config),
+            loss=calculate_loss(metrics, self.weights),
         )
 
     def optimize(self, steps: int) -> Solution:
@@ -81,7 +89,7 @@ class SimulatedAnnealingSolver:
             self.problem,
             self.rng,
             current,
-            self.loss_config,
+            self.weights,
             steps,
         )
         temperature = temperature_config.initial_temperature
@@ -102,9 +110,14 @@ class SimulatedAnnealingSolver:
                 previous=current,
                 changed_agent_ids=changed_agent_ids,
             )
-            delta = candidate.loss - current.loss
+            loss_change = candidate.loss - current.loss
+            if loss_change <= 0:
+                accept_move = True
+            else:
+                acceptance_probability = math.exp(-loss_change / temperature)
+                accept_move = self.rng.random() < acceptance_probability
 
-            if delta <= 0 or self.rng.random() < math.exp(-delta / temperature):
+            if accept_move:
                 current = candidate
                 if current.loss < best.loss:
                     best = current
@@ -124,6 +137,7 @@ class SimulatedAnnealingSolver:
                 self.problem,
                 seed=self.rng.getrandbits(64),
                 loss_config=self.loss_config,
+                weights=self.weights,
             )
             for _ in range(n_runs)
         ]

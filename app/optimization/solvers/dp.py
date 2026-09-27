@@ -5,14 +5,13 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 
 from app.optimization.datamodel import NodeId, ProblemData, Solution, Tours
-from app.optimization.loss_calibration import resolve_loss_configs
+from app.optimization.loss_calibration import calibrate_loss_weights_for_configs
 from app.optimization.metrics import calculate_solution_metrics, calculate_tour_metrics
 from app.optimization.objectives import (
     DEFAULT_LOSS_CONFIG,
     LOSS_CONFIGS,
-    AnyLossConfig,
+    LossConfig,
     MetricName,
-    ResolvedLossConfig,
     calculate_loss,
 )
 from app.optimization.problem_io import load_data
@@ -38,7 +37,7 @@ class DynamicProgrammingSolver:
         self,
         problem: ProblemData,
         max_states: int = DEFAULT_MAX_STATES,
-        loss_configs: Sequence[AnyLossConfig] = (DEFAULT_LOSS_CONFIG,),
+        loss_configs: Sequence[LossConfig] = (DEFAULT_LOSS_CONFIG,),
     ) -> None:
         if max_states <= 0:
             raise ValueError("max_states must be positive")
@@ -54,16 +53,18 @@ class DynamicProgrammingSolver:
 
         self.problem = problem
         self.max_states = max_states
-        self.loss_configs = resolve_loss_configs(problem, loss_configs)
+        self.loss_configs = tuple(loss_configs)
+        self.weights_by_config = calibrate_loss_weights_for_configs(problem, self.loss_configs)
         self.final_state_count = 0
         self.elapsed_seconds = 0.0
 
     def evaluate_tours(
         self,
         tours: Tours,
-        loss_config: ResolvedLossConfig | None = None,
+        weights: dict[MetricName, float] | None = None,
     ) -> Solution:
-        config = loss_config or self.loss_configs[0]
+        if weights is None:
+            weights = self.weights_by_config[0]
         metrics_by_tour = [
             calculate_tour_metrics(self.problem, agent_id, tour)
             for agent_id, tour in enumerate(tours)
@@ -74,7 +75,7 @@ class DynamicProgrammingSolver:
             tours=tours,
             tour_metrics=metrics_by_tour,
             metrics=metrics,
-            loss=calculate_loss(metrics, config),
+            loss=calculate_loss(metrics, weights),
         )
 
     def optimize(
@@ -105,11 +106,7 @@ class DynamicProgrammingSolver:
         can_follow = self.problem.can_follow
         return_home_feasible = self.problem.can_return_home
         config_weights = []
-        for config in self.loss_configs:
-            weights = {
-                term.metric: term.weight
-                for term in config.terms
-            }
+        for weights in self.weights_by_config:
             config_weights.append(
                 (
                     weights.get(MetricName.TOTAL_DISTANCE, 0),
@@ -339,8 +336,9 @@ class DynamicProgrammingSolver:
         self.elapsed_seconds = time.perf_counter() - started
         results = []
 
-        for config, best_record in zip(
+        for config, weights, best_record in zip(
             self.loss_configs,
+            self.weights_by_config,
             best_records,
             strict=True,
         ):
@@ -363,7 +361,7 @@ class DynamicProgrammingSolver:
             for agent_id in agent_ids:
                 tours[agent_id].append(agent_home_nodes[agent_id])
 
-            solution = self.evaluate_tours(tours, config)
+            solution = self.evaluate_tours(tours, weights)
 
             if not math.isclose(solution.loss, best_loss):
                 raise AssertionError(

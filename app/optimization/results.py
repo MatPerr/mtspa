@@ -1,10 +1,10 @@
 from dataclasses import dataclass
 
 from app.optimization.datamodel import Solution
-from app.optimization.objectives import ResolvedLossConfig
+from app.optimization.objectives import LossConfig
 
 
 @dataclass(frozen=True, slots=True)
 class ConfigOptimizationResult:
-    config: ResolvedLossConfig
+    config: LossConfig
     solution: Solution
