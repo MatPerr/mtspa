@@ -296,6 +296,13 @@ uv run python -m scripts.generate_samples corsica_nurses --overwrite
 uv run python -m scripts.generate_samples paris_dinner_deliveries --overwrite
 ```
 
+## Documentation
+
+Start with the [documentation index](docs/README.md) for the suggested reading
+order. It includes function-call trees for all four solvers and focused pages
+on data loading/modeling, metrics, objectives, loss and temperature calibration,
+variation operators, reports, and the API flow.
+
 ## Repository structure
 
 ```text
@@ -308,6 +315,7 @@ app/
 frontend/                  React map and problem editor
 scripts/                   Command-line comparison tools
 data/                      Sample problem data
+docs/                      Architecture, shared helpers, and solver call trees
 ```
 
 The backend is stateless: the frontend sends the complete problem to
