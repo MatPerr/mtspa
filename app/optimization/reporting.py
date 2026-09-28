@@ -20,7 +20,7 @@ def save_solution_report(
     weights: dict[MetricName, float],
     run_settings: dict[str, int | None] | None = None,
 ) -> tuple[Path, Path]:
-    """Write complete solution metrics and a standalone SVG for either solver.
+    """Write complete solution metrics, node data, and an SVG for either solver.
 
     Filenames include the solver and objective, so different methods/configs
     coexist. Repeating the same solver/config in one directory overwrites its
@@ -90,7 +90,7 @@ def _summary_data(
     weights: dict[MetricName, float],
     run_settings: dict[str, int | None],
 ) -> dict[str, object]:
-    """Serialize the selected objective, actual weights and every metric."""
+    """Serialize the objective, metrics, and nodes needed to map every route."""
     return {
         "solver": solver,
         "method": "exact" if solver == "dp" else "approximate",
@@ -107,12 +107,14 @@ def _summary_data(
         "units": {
             "distance": "metres",
             "time": "seconds",
+            "coordinates": "WGS84 decimal degrees",
             "gain": "input gain units",
             "gain_per_km": "input gain units per kilometre",
             "gain_per_hour": "input gain units per elapsed hour",
         },
         "timing_feasible": solution.metrics.total_lateness == 0 and solution.metrics.total_overtime == 0,
         "metrics": asdict(solution.metrics),
+        "nodes": {str(node.id): asdict(node) for node in problem.nodes},
         "agents": {
             str(agent_id): _tour_data(
                 problem,

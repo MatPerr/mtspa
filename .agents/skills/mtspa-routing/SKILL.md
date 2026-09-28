@@ -113,6 +113,14 @@ follow [Manual data](references/manual-data.md); no web server is needed.
   complete solution `metrics` and per-agent `agents[id].metrics`, with units,
   calibrated weights in `objective.weights`, loss, runtime, and `run_settings`.
   `timing_feasible` indicates zero lateness and overtime. Link the JSON and SVG.
+- Get coordinates directly from `report["nodes"][str(node_id)]`: `latitude`
+  and `longitude` are numeric WGS84 decimal degrees, not rounded map positions.
+  This mapping includes every home and appointment, plus `id`, `kind`,
+  `agent_id`, `time`, `duration`, and `gain`. Resolve each ID in
+  `report["agents"][str(agent_id)]["tour"]` through this mapping; no input
+  dataset or geocoding request is needed. A home's `agent_id` identifies its
+  owner; appointment assignments come from the returned tours. Reports now
+  contain location data, so keep personal reports out of public commits.
 - Display every agent's route in the chat, not just aggregate metrics or a file
   link: agent name, home → ordered appointments → home, distance, and any
   lateness/overtime. Include agents with no appointments as home → home.

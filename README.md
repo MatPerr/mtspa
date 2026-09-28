@@ -208,6 +208,14 @@ Both JSON reports use the same schema: solver/method, objective metadata and
 calibrated weights, loss, runtime, run settings, timing feasibility, complete
 `SolutionMetrics` under `metrics`, and complete `TourMetrics` under each
 `agents[agent_id].metrics`, alongside names and route node IDs. Units are included.
+The `nodes` mapping is keyed by string node ID and contains every home's and
+appointment's `id`, `latitude`, `longitude`, `kind`, `agent_id`, `time`, `duration`,
+and `gain`. Coordinates are numeric WGS84 decimal degrees, preserved from the
+loaded dataset. Look up each route node with `report["nodes"][str(node_id)]`;
+you do not need the original dataset to map the route. Home ownership is recorded
+in `agent_id`; appointment assignments come from the agents' tours. Personal
+reports include locations and should not be published without authorization.
+
 DP records its state limit and final state count; SA records steps per run, run
 count, and the input seed. SA exports the best solution across all runs, while
 runtime covers all runs. Runtime excludes loading, loss-weight calibration and

@@ -67,6 +67,8 @@ class ReportingTests(unittest.TestCase):
         self.assertEqual(summary['run_settings'], settings)
         self.assertEqual(summary['units']['distance'], 'metres')
         self.assertEqual(summary['units']['time'], 'seconds')
+        self.assertEqual(summary['units']['coordinates'], 'WGS84 decimal degrees')
+        self.assertEqual(summary['nodes'], {str(node.id): asdict(node) for node in self.problem.nodes})
         self.assertTrue(summary['timing_feasible'])
         for agent, tour in enumerate(solution.tours):
             reported = summary['agents'][str(agent)]
@@ -76,6 +78,34 @@ class ReportingTests(unittest.TestCase):
             self.assertEqual(reported['appointment_count'], len(tour) - 2)
         self.assertEqual(summary['agents']['0']['name'], 'Camille & <équipe>')
         self.assertIn('Camille & <équipe>', ''.join(svg.itertext()))
+
+    def test_report_alone_resolves_routes_to_coordinates_and_home_owners(self):
+        """Keep coordinates precise and resolve homes even when node and agent IDs differ."""
+        nodes = [
+            replace(node, agent_id=1 - node.agent_id) if node.kind == 'home' else node
+            for node in self.problem.nodes
+        ]
+        nodes[0] = replace(nodes[0], latitude=48.850123456789, longitude=-2.350123456789)
+        problem = ProblemData(nodes, self.problem.agents, self.problem.distances, self.problem.travel_times)
+        self.tours = [[1, 2, 3, 1], [0, 0]]
+
+        for solver in ('dp', 'sa'):
+            with self.subTest(solver=solver), tempfile.TemporaryDirectory() as directory:
+                _, summary, _, _ = self.export(directory, solver=solver, problem=problem)
+                self.assertEqual(summary['nodes']['0']['latitude'], nodes[0].latitude)
+                self.assertEqual(summary['nodes']['0']['longitude'], nodes[0].longitude)
+                for agent_id, agent in summary['agents'].items():
+                    route_nodes = [summary['nodes'][str(node_id)] for node_id in agent['tour']]
+                    self.assertEqual(route_nodes[0], route_nodes[-1])
+                    self.assertEqual(route_nodes[0]['kind'], 'home')
+                    self.assertEqual(route_nodes[0]['agent_id'], int(agent_id))
+                    self.assertEqual([node['id'] for node in route_nodes], agent['tour'])
+                    for node in route_nodes:
+                        self.assertIsInstance(node['latitude'], float)
+                        self.assertIsInstance(node['longitude'], float)
+                    for node in route_nodes[1:-1]:
+                        self.assertEqual(node['kind'], 'appointment')
+                        self.assertIsNone(node['agent_id'])
 
     def test_solver_and_objective_names_do_not_collide_or_mislabel_reports(self):
         """Every supported solver/config has unique files and the correct title."""
@@ -156,6 +186,8 @@ class ReportingTests(unittest.TestCase):
 class ReportCliTests(unittest.TestCase):
     def test_both_clis_export_matching_schemas_for_selected_objectives(self):
         """Exercise real DP, single SA and process-pool SA entrypoints."""
+        problem = ProblemData(*load_data(ROOT / 'data/corsica_nurses.json'))
+        expected_nodes = {str(node.id): asdict(node) for node in problem.nodes}
         cases = [
             ('dp', 'shortest_distance', ['--max-states', '200000']),
             ('dp', 'maximum_uptime', ['--max-states', '200000']),
@@ -183,6 +215,7 @@ class ReportCliTests(unittest.TestCase):
                     self.assertIn(str(svg_path), result.stdout)
                     self.assertIn(f'Objective: {LOSS_CONFIGS[config_id].name}', result.stdout)
                     self.assertEqual(summary['objective']['id'], config_id)
+                    self.assertEqual(summary['nodes'], expected_nodes)
                     self.assertEqual(set(summary['metrics']), {field.name for field in fields(SolutionMetrics)})
                     for agent in summary['agents'].values():
                         self.assertEqual(set(agent['metrics']), {field.name for field in fields(TourMetrics)})
